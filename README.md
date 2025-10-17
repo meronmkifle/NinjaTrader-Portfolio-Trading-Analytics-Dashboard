@@ -130,16 +130,6 @@ The dashboard processes NinjaTrader period summary exports and provides portfoli
   - Fair: Average correlation 0.5-0.7
   - Limited: Average correlation >0.7
 
-## Deployment on Streamlit Cloud
-
-1. Push your code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Sign in with GitHub
-4. Click "New app"
-5. Select your repository, branch, and `streamlit_app.py`
-6. Click "Deploy"
-
-Your dashboard will be live at `https://your-app-name.streamlit.app`
 
 ## File Format
 
@@ -156,53 +146,10 @@ The dashboard expects NinjaTrader period summary CSV files with these columns:
 
 The dashboard automatically detects and parses NinjaTrader format.
 
-## Project Structure
-
-```
-tradelens-pro/
-├── streamlit_app.py          # Main dashboard application
-├── requirements.txt           # Python dependencies
-├── generate_test_files.py     # Test data generator (optional)
-└── README.md                  # This file
-```
-
-## Generating Test Data
-
-To test the dashboard without real trading data:
-
-```bash
-python generate_test_files.py
-```
-
-This creates three sample CSV files matching NinjaTrader format that you can upload to the dashboard.
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
-## Troubleshooting
-
-### "No valid data found"
-- Ensure your CSV file is a NinjaTrader period summary export
-- Check that the file has required columns (Period, Cum. net profit, Net profit)
-- Verify dates are in DD/MM/YYYY format
-
-### "Module not found" errors
-- Run `pip install -r requirements.txt`
-- Ensure you're using Python 3.11 or higher
-
-### Charts not displaying
-- Clear browser cache
-- Refresh the page
-- Check browser console for JavaScript errors
-
-### Correlation matrix not showing
-- Upload at least 2 strategy files
-- Ensure both files have valid data
-
-## License
-
-MIT License - see LICENSE file for details
 
 ## Disclaimer
 
