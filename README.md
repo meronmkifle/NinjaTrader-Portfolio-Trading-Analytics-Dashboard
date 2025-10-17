@@ -42,43 +42,6 @@ The dashboard processes NinjaTrader period summary exports and provides portfoli
 - Monthly equity curves
 - Drawdown analysis across strategies
 
-## Installation
-
-### Requirements
-- Python 3.11 or higher
-- pip package manager
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/tradelens-pro.git
-cd tradelens-pro
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Run the dashboard:
-```bash
-streamlit run streamlit_app.py
-```
-
-4. Open your browser to `http://localhost:8501`
-
-### Dependencies
-
-The project requires these packages (see `requirements.txt`):
-- streamlit>=1.39.0
-- pandas>=2.2.0
-- numpy>=1.26.0
-- matplotlib>=3.8.0
-- seaborn>=0.13.0
-- yfinance>=0.2.0
-- scipy>=1.11.0
-- openpyxl>=3.1.0
 
 ## Usage
 
