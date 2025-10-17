@@ -427,3 +427,4 @@ else:
 # Footer
 st.markdown("---")
 st.markdown("Built with Streamlit | Trading Analytics Dashboard v1.0")
+
