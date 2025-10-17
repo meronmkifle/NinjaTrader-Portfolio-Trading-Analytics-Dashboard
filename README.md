@@ -1,6 +1,6 @@
 # NinjaTrader Portfolio Analytics Dashboard
 
-A comprehensive trading analytics dashboard built with Streamlit for NinjaTrader users who trade multiple algorithmic strategies. Analyze individual strategy performance and see how strategies work together in a combined trading account.
+A fairly comprehensive trading analytics dashboard built with Streamlit for NinjaTrader users who trade multiple algorithmic strategies. Analyze individual strategy performance and see how strategies work together in a combined trading account.
 
 ## What It Does
 
