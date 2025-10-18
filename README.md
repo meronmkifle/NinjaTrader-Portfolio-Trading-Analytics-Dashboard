@@ -36,8 +36,7 @@ This tool is for educational and analytical purposes only. Past performance does
 
 ## Support
 
-For questions or issues:
-- Any inquiries: https://www.linkedin.com/in/meronmkifle/
+For questions or issues: https://www.linkedin.com/in/meronmkifle/
   
 ## License
 
