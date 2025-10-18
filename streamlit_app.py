@@ -6,7 +6,7 @@ import seaborn as sns
 from datetime import datetime
 import yfinance as yf
 
-st.set_page_config(page_title="TradeLens Pro - NinjaTrader Analytics", layout="wide", page_icon="📊")
+st.set_page_config(page_title="TradeLens Pro - NinjaTrader Analytics", layout="wide")
 
 # Custom CSS
 st.markdown("""
@@ -1105,4 +1105,5 @@ else:
 # Footer
 st.markdown("---")
 st.caption("TradeLens Pro v2.0 | Built for NinjaTrader Period Reports")
+
 
