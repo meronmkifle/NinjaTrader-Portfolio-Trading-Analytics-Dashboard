@@ -4,13 +4,12 @@ Algorithmic traders running multiple strategies need a single view to understand
 
 ## Solution:
 
-A Streamlit dashboard that allow NinjaTrader users to:
+A Streamlit dashboard for NinjaTrader users to:
 
-- Ingests NinjaTrader period-summary CSVs
-- Computes strategy- and portfolio-level metrics (Sharpe, Sortino, max drawdown, recovery factor)
-- Visualizes equity curves, drawdowns, correlation heatmaps, and contribution breakdowns
-- Lets users test custom allocation weights and instantly see portfolio impact
-
+- Upload period-summary CSVs
+- Analyze individual strategies and combined portfolio
+- Test custom allocation weights in real-time
+- Visualize equity curves, drawdowns, correlations, and strategy contributions
 
 ## Key Features
 
