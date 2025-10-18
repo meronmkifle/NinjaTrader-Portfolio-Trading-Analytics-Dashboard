@@ -270,10 +270,10 @@ with st.sidebar:
         
         # Show combined account info
         if len(uploaded_files) > 1:
-            st.success(f"✅ {len(uploaded_files)} strategies loaded")
-            st.info("💼 Combined Account analysis available!")
+            st.success(f" {len(uploaded_files)} strategies loaded")
+            st.info(" Combined Account analysis available!")
         else:
-            st.info(f"📊 {len(uploaded_files)} strategy loaded")
+            st.info(f" {len(uploaded_files)} strategy loaded")
             st.caption("Upload 2+ strategies for portfolio analysis")
     
     st.markdown("---")
@@ -283,7 +283,7 @@ with st.sidebar:
     
     # Position sizing
     if uploaded_files and len(uploaded_files) > 1:
-        with st.expander("💰 Position Sizing / Allocation"):
+        with st.expander(" Position Sizing / Allocation"):
             st.caption("Adjust capital allocation to each strategy")
             
             allocation_mode = st.radio(
@@ -314,29 +314,29 @@ with st.sidebar:
 
 # Main Content
 if not uploaded_files:
-    st.info("👆 Upload your NinjaTrader performance summary files to begin analysis")
+    st.info(" Upload your NinjaTrader performance summary files to begin analysis")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("### 📊 Individual Analytics")
+        st.markdown("###  Individual Analytics")
         st.markdown("- Period-by-period performance")
         st.markdown("- Risk-adjusted returns")
         st.markdown("- Drawdown analysis")
     
     with col2:
-        st.markdown("### 🔄 Portfolio Analytics")
+        st.markdown("###  Portfolio Analytics")
         st.markdown("- Combined strategy performance")
         st.markdown("- Strategy correlation analysis")
         st.markdown("- Diversification benefits")
     
     with col3:
-        st.markdown("### 📈 Benchmarking")
+        st.markdown("###  Benchmarking")
         st.markdown("- Compare vs Buy & Hold")
         st.markdown("- Monthly equity curves")
         st.markdown("- Performance comparison")
     
     st.markdown("---")
-    st.markdown("### 📋 NinjaTrader Export Instructions")
+    st.markdown("###  NinjaTrader Export Instructions")
     st.markdown("""
     1. In NinjaTrader, go to **Performance** tab
     2. Set your desired time period
@@ -363,7 +363,7 @@ else:
     # Handle custom allocation weights
     allocation_weights = None
     if st.session_state.get('custom_allocation', False):
-        with st.sidebar.expander("💰 Position Sizing / Allocation", expanded=True):
+        with st.sidebar.expander(" Position Sizing / Allocation", expanded=True):
             st.caption("Set allocation % for each strategy (must sum to 100%)")
             
             weights = {}
@@ -382,20 +382,20 @@ else:
                 total += weight
             
             if abs(total - 100) > 0.01:
-                st.warning(f"⚠️ Total allocation: {total:.1f}% (should be 100%)")
+                st.warning(f" Total allocation: {total:.1f}% (should be 100%)")
             else:
-                st.success(f"✅ Total allocation: {total:.1f}%")
+                st.success(f" Total allocation: {total:.1f}%")
                 allocation_weights = weights
     
     # Create tabs
     tabs = st.tabs([
-        "📊 Dashboard",
-        "💼 Combined Account",
-        "🎯 Individual Strategies",
-        "🔄 Portfolio Analysis",
-        "📈 Equity Curves",
-        "📉 Drawdown Analysis",
-        "📊 Period Analysis"
+        "Dashboard",
+        "Combined Account",
+        "Individual Strategies",
+        "Portfolio Analysis",
+        "Equity Curves",
+        "Drawdown Analysis",
+        "Period Analysis"
     ])
     
     # ==================== TAB 1: DASHBOARD ====================
@@ -464,22 +464,22 @@ else:
     
     # ==================== TAB 2: COMBINED ACCOUNT ====================
     with tabs[1]:
-        st.header("💼 Combined Account View")
+        st.header("Combined Account View")
         
         # Show allocation if custom
         if allocation_weights:
-            st.info("🎯 Using custom allocation weights")
+            st.info("Using custom allocation weights")
             weight_display = " | ".join([f"{name}: {w*100:.0f}%" for name, w in allocation_weights.items()])
             st.caption(weight_display)
         else:
-            st.info("📊 Using equal weight allocation across all strategies")
+            st.info("Using equal weight allocation across all strategies")
         
         st.markdown("---")
         
         if combined_df is not None and len(dataframes) > 1:
             
             # Quick comparison box
-            st.subheader("🎯 Combined vs Individual - Quick Comparison")
+            st.subheader("Combined vs Individual - Quick Comparison")
             
             # Calculate averages for individual strategies
             individual_metrics = []
@@ -801,7 +801,7 @@ else:
         metrics = calculate_summary_metrics(df)
         
         # Metrics Grid
-        st.subheader("📊 Performance Metrics")
+        st.subheader("Performance Metrics")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -853,7 +853,7 @@ else:
     with tabs[3]:
         st.header("Portfolio Analysis")
         
-        st.subheader("🔄 Strategy Correlation Matrix")
+        st.subheader("Strategy Correlation Matrix")
         
         if len(dataframes) > 1 and combined_df is not None:
             # Create correlation matrix from net profit columns
@@ -881,7 +881,7 @@ else:
         st.markdown("---")
         
         # Combined Performance
-        st.subheader("📊 Portfolio Metrics")
+        st.subheader("Portfolio Metrics")
         
         col1, col2, col3 = st.columns(3)
         
@@ -1105,3 +1105,4 @@ else:
 # Footer
 st.markdown("---")
 st.caption("TradeLens Pro v2.0 | Built for NinjaTrader Period Reports")
+
