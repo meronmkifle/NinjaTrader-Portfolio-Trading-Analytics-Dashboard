@@ -680,7 +680,7 @@ else:
             st.markdown("---")
             
             # Strategy correlation impact
-            st.subheader("📊 Diversification Benefits")
+            st.subheader("Diversification Benefits")
             
             col1, col2 = st.columns(2)
             
@@ -744,7 +744,7 @@ else:
             st.markdown("---")
             
             # Rolling performance metrics
-            st.subheader("📈 Rolling Performance Analysis")
+            st.subheader("Rolling Performance Analysis")
             
             window = st.slider("Rolling Window (periods)", 10, 50, 20)
             
@@ -791,7 +791,7 @@ else:
             st.pyplot(fig)
             
         elif len(dataframes) == 1:
-            st.warning("📤 Upload multiple strategy files to see combined account analysis")
+            st.warning("Upload multiple strategy files to see combined account analysis")
             st.info("Upload 2 or more strategies to see how they work together in one account!")
         else:
             st.error("No data available")
@@ -1109,6 +1109,7 @@ else:
 # Footer
 st.markdown("---")
 st.caption("TradeLens Pro v2.0 | Built for NinjaTrader Period Reports")
+
 
 
 
