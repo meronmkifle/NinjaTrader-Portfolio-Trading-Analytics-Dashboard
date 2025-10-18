@@ -241,7 +241,7 @@ def calculate_portfolio_metrics(dataframes, weights=None):
 
 # ==================== STREAMLIT APP ====================
 
-st.markdown('<h1 class="main-header">🎯 TradeLens Pro - NinjaTrader Analytics</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">TradeLens Pro - NinjaTrader Analytics</h1>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
@@ -1109,6 +1109,7 @@ else:
 # Footer
 st.markdown("---")
 st.caption("TradeLens Pro v2.0 | Built for NinjaTrader Period Reports")
+
 
 
 
