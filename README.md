@@ -4,7 +4,7 @@ Algorithmic traders running multiple strategies need a single view to understand
 
 ## Solution:
 
-A Streamlit dashboard for NinjaTrader users to:
+A Streamlit dashboard that allow NinjaTrader users to:
 
 - Ingests NinjaTrader period-summary CSVs
 - Computes strategy- and portfolio-level metrics (Sharpe, Sortino, max drawdown, recovery factor)
