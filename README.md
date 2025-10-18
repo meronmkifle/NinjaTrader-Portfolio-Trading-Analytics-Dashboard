@@ -30,11 +30,6 @@ A Streamlit dashboard for NinjaTrader users to:
 - Portfolio: Correlation, diversification score
 
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
-
-
 ## Disclaimer
 
 This tool is for educational and analytical purposes only. Past performance does not guarantee future results. Always consult with a financial advisor before making investment decisions.
