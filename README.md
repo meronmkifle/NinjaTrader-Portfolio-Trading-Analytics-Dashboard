@@ -1,6 +1,6 @@
 # NinjaTrader Portfolio Analytics Dashboard
 
-Algorithmic traders running multiple strategies need a single view to understand how strategies interact in one account: which strategies drive returns, which increase risk, and how allocations impact portfolio outcomes.
+Algorithmic traders running multiple strategies need a single view to understand how strategies interact in one account: which strategies drive returns, which increase risk, and how allocations impact portfolio outcomes. NinjaTrader’s native Strategy Analyser does not provide this functionality.
 
 ## Solution:
 
