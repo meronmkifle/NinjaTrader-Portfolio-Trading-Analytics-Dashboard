@@ -1108,7 +1108,8 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("TradeLens Pro v2.0 | Built for NinjaTrader Period Reports")
+st.caption("Built for NinjaTrader traders | Powered by Streamlit")
+
 
 
 
