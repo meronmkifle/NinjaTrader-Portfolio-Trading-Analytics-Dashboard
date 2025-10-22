@@ -1,4 +1,5 @@
 # NinjaTrader Portfolio Analytics Dashboard
+
 Algorithmic traders running multiple strategies need a single view to understand how strategies interact in one account: which strategies drive returns, which increase risk, and how allocations impact portfolio outcomes. NinjaTrader's native Strategy Analyser does not provide this functionality.
 
 ## Solution:
@@ -7,6 +8,12 @@ A Streamlit dashboard for NinjaTrader users to:
 - Analyze individual strategies and combined portfolio
 - Test custom allocation weights in real-time
 - Visualize equity curves, drawdowns, correlations, and strategy contributions
+
+## Preview
+
+![Equity Curves Comparison](https://github.com/meronmkifle/NinjaTrader-Portfolio-Trading-Analytics-Dashboard/blob/main/Equity%20Curves%20Comparison%20Image.png)
+
+![Individual Strategy Analysis](https://github.com/meronmkifle/NinjaTrader-Portfolio-Trading-Analytics-Dashboard/blob/main/Individual%20Strategy%20Analysis%20Image.png)
 
 ## Key Features
 - Strategy Analytics: Profit, win rate, expectancy, MAE/MFE, drawdowns
@@ -29,7 +36,6 @@ A Streamlit dashboard for NinjaTrader users to:
 This tool is for educational and analytical purposes only. Past performance does not guarantee future results. Always consult with a financial advisor before making investment decisions.
 
 ## Support
-
 If you find this tool helpful, consider buying me a coffee! ☕
 
 <a href="https://buymeacoffee.com/qhl34mcne4" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
