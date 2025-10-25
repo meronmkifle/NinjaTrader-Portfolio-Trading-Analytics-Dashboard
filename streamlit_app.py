@@ -27,71 +27,153 @@ st.markdown("""
 
 # ==================== HELPER FUNCTIONS ====================
 
-def parse_ninjatrader_period_file(file):
-    """Parse NinjaTrader period summary CSV files"""
+def detect_format_type(df):
+    """Detect the type of NinjaTrader export format"""
+    if 'Period' not in df.columns:
+        return 'unknown'
+    
+    # Check first non-null Period value
+    first_period = df['Period'].dropna().iloc[0] if len(df['Period'].dropna()) > 0 else ''
+    
+    # Check if it's day of week format
+    days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    if any(day in str(first_period) for day in days_of_week):
+        return 'day_of_week'
+    
+    # Check if it has time component (trades format)
+    if ':' in str(first_period) and ('AM' in str(first_period) or 'PM' in str(first_period)):
+        return 'trades'
+    
+    # Check if Cum. net profit has n/a values
+    if 'Cum. net profit' in df.columns:
+        has_na = df['Cum. net profit'].astype(str).str.contains('n/a', case=False).any()
+        if has_na:
+            return 'day_of_week'  # or some other aggregated format
+    
+    # Otherwise it's a regular period format (daily, weekly, monthly, yearly)
+    return 'period'
+
+def clean_currency_column(series):
+    """Clean currency columns (remove $, commas, handle n/a)"""
+    # Convert to string and handle n/a
+    cleaned = series.astype(str).str.replace('$', '').str.replace(',', '').str.replace('%', '')
+    # Replace n/a with NaN
+    cleaned = cleaned.replace(['n/a', 'N/A', 'na', 'NA'], np.nan)
+    return pd.to_numeric(cleaned, errors='coerce')
+
+def parse_period_column(df, format_type):
+    """Parse Period column based on format type"""
+    if format_type == 'day_of_week':
+        # Keep day names as-is, create a numeric index for ordering
+        day_order = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 
+                    'Friday': 4, 'Saturday': 5, 'Sunday': 6}
+        df['Day_Order'] = df['Period'].map(day_order)
+        df['Period_Original'] = df['Period']
+        return df
+    
+    elif format_type == 'trades':
+        # Parse datetime with time component
+        try:
+            # Try format: DD/MM/YYYY HH:MM AM/PM
+            df['Period'] = pd.to_datetime(df['Period'], format='%d/%m/%Y %I:%M %p', errors='coerce')
+        except:
+            try:
+                df['Period'] = pd.to_datetime(df['Period'], format='%d/%m/%Y %H:%M', errors='coerce')
+            except:
+                df['Period'] = pd.to_datetime(df['Period'], errors='coerce')
+        
+        if 'Period' in df.columns and not df['Period'].isna().all():
+            df['Date'] = df['Period'].dt.date
+            df['Year'] = df['Period'].dt.year
+            df['Month'] = df['Period'].dt.month
+            df['Month_Year'] = df['Period'].dt.strftime('%Y-%m')
+            df['Time'] = df['Period'].dt.time
+        return df
+    
+    else:  # period format (daily, weekly, monthly, yearly)
+        # Try different date formats
+        try:
+            df['Period'] = pd.to_datetime(df['Period'], format='%d/%m/%Y', errors='coerce')
+        except:
+            try:
+                df['Period'] = pd.to_datetime(df['Period'], format='%m/%d/%Y', errors='coerce')
+            except:
+                df['Period'] = pd.to_datetime(df['Period'], errors='coerce')
+        
+        if 'Period' in df.columns and not df['Period'].isna().all():
+            df['Month_Year'] = df['Period'].dt.strftime('%Y-%m')
+            df['Date'] = df['Period'].dt.date
+            df['Year'] = df['Period'].dt.year
+            df['Month'] = df['Period'].dt.month
+            df['Day_of_Week'] = df['Period'].dt.day_name()
+        
+        return df
+
+def parse_ninjatrader_file(file):
+    """Parse NinjaTrader CSV files with format auto-detection"""
     try:
         if file.name.endswith('.csv'):
             df = pd.read_csv(file)
         else:
             df = pd.read_excel(file)
         
+        # Detect format type
+        format_type = detect_format_type(df)
+        
+        # Parse Period column based on format
+        df = parse_period_column(df, format_type)
+        
+        # Clean numeric columns
+        numeric_cols = ['Cum. net profit', 'Net profit', 'Gross profit', 'Gross loss', 
+                       'Commission', 'Cum. max. drawdown', 'Max. drawdown', 
+                       'Avg. trade', 'Avg. winner', 'Avg. loser', 
+                       'Lrg. winner', 'Lrg. loser', 'Avg. MAE', 'Avg. MFE', 'Avg. ETD']
+        
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = clean_currency_column(df[col])
+        
+        # Clean percentage columns
+        if '% Win' in df.columns:
+            df['% Win'] = clean_currency_column(df['% Win'])
+        
+        if '% Trade' in df.columns:
+            df['% Trade'] = clean_currency_column(df['% Trade'])
+        
+        # Store format type as metadata
+        df.attrs['format_type'] = format_type
+        
         return df
+    
     except Exception as e:
         st.error(f"Error parsing file: {e}")
         return None
 
-def clean_currency_column(series):
-    """Clean currency columns (remove $, commas, etc.)"""
-    return pd.to_numeric(series.astype(str).str.replace('$', '').str.replace(',', '').str.replace('%', ''), errors='coerce')
-
-def process_period_data(df):
-    """Process NinjaTrader period summary data"""
-    # Parse Period column as datetime
-    if 'Period' in df.columns:
-        df['Period'] = pd.to_datetime(df['Period'], format='%d/%m/%Y', errors='coerce')
-        if df['Period'].isna().any():
-            df['Period'] = pd.to_datetime(df['Period'], errors='coerce')
-        
-        # Extract time features
-        df['Month_Year'] = df['Period'].dt.strftime('%Y-%m')
-        df['Date'] = df['Period'].dt.date
-        df['Year'] = df['Period'].dt.year
-        df['Month'] = df['Period'].dt.month
-    
-    # Clean numeric columns
-    numeric_cols = ['Cum. net profit', 'Net profit', 'Gross profit', 'Gross loss', 
-                   'Commission', 'Cum. max. drawdown', 'Max. drawdown', 
-                   'Avg. trade', 'Avg. winner', 'Avg. loser', 
-                   'Lrg. winner', 'Lrg. loser', 'Avg. MAE', 'Avg. MFE', 'Avg. ETD']
-    
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = clean_currency_column(df[col])
-    
-    # Clean percentage columns
-    if '% Win' in df.columns:
-        df['% Win'] = clean_currency_column(df['% Win'])
-    
-    if '% Trade' in df.columns:
-        df['% Trade'] = clean_currency_column(df['% Trade'])
-    
-    return df
-
 def calculate_summary_metrics(df):
-    """Calculate overall metrics from period data"""
+    """Calculate overall metrics from period data - handles all formats"""
     metrics = {}
+    format_type = df.attrs.get('format_type', 'period')
     
     if len(df) == 0:
         return metrics
     
-    # Use the last row for cumulative metrics
-    last_row = df.iloc[-1]
-    
-    # Basic metrics
-    metrics['Net Profit'] = last_row.get('Cum. net profit', 0)
-    metrics['Gross Profit'] = df['Gross profit'].sum() if 'Gross profit' in df.columns else 0
-    metrics['Gross Loss'] = abs(df['Gross loss'].sum()) if 'Gross loss' in df.columns else 0
-    metrics['Total Commission'] = df['Commission'].sum() if 'Commission' in df.columns else 0
+    # For day_of_week or other aggregated formats, we may not have cumulative data
+    if format_type == 'day_of_week':
+        # Calculate from available data
+        metrics['Net Profit'] = df['Net profit'].sum() if 'Net profit' in df.columns else 0
+        metrics['Gross Profit'] = df['Gross profit'].sum() if 'Gross profit' in df.columns else 0
+        metrics['Gross Loss'] = abs(df['Gross loss'].sum()) if 'Gross loss' in df.columns else 0
+        metrics['Total Commission'] = df['Commission'].sum() if 'Commission' in df.columns else 0
+    else:
+        # Use the last row for cumulative metrics
+        last_row = df.iloc[-1]
+        metrics['Net Profit'] = last_row.get('Cum. net profit', 0)
+        if pd.isna(metrics['Net Profit']):
+            metrics['Net Profit'] = df['Net profit'].sum() if 'Net profit' in df.columns else 0
+        
+        metrics['Gross Profit'] = df['Gross profit'].sum() if 'Gross profit' in df.columns else 0
+        metrics['Gross Loss'] = abs(df['Gross loss'].sum()) if 'Gross loss' in df.columns else 0
+        metrics['Total Commission'] = df['Commission'].sum() if 'Commission' in df.columns else 0
     
     # Profit Factor
     if metrics['Gross Loss'] != 0:
@@ -99,7 +181,7 @@ def calculate_summary_metrics(df):
     else:
         metrics['Profit Factor'] = 0
     
-    # Average metrics
+    # Average metrics (use mean where available, handle NaN)
     metrics['Avg Trade'] = df['Avg. trade'].mean() if 'Avg. trade' in df.columns else 0
     metrics['Avg Winner'] = df['Avg. winner'].mean() if 'Avg. winner' in df.columns else 0
     metrics['Avg Loser'] = df['Avg. loser'].mean() if 'Avg. loser' in df.columns else 0
@@ -111,22 +193,36 @@ def calculate_summary_metrics(df):
     metrics['Largest Winner'] = df['Lrg. winner'].max() if 'Lrg. winner' in df.columns else 0
     metrics['Largest Loser'] = df['Lrg. loser'].min() if 'Lrg. loser' in df.columns else 0
     
-    # Drawdown
-    metrics['Max Drawdown'] = last_row.get('Cum. max. drawdown', 0)
-    metrics['Peak Profit'] = df['Cum. net profit'].max() if 'Cum. net profit' in df.columns else 0
+    # Drawdown - only for period-based formats
+    if format_type == 'period' or format_type == 'trades':
+        if 'Cum. max. drawdown' in df.columns:
+            last_row = df.iloc[-1]
+            metrics['Max Drawdown'] = last_row.get('Cum. max. drawdown', 0)
+            if pd.isna(metrics['Max Drawdown']):
+                metrics['Max Drawdown'] = df['Max. drawdown'].min() if 'Max. drawdown' in df.columns else 0
+        
+        if 'Cum. net profit' in df.columns:
+            metrics['Peak Profit'] = df['Cum. net profit'].max()
+    else:
+        metrics['Max Drawdown'] = 0
+        metrics['Peak Profit'] = metrics['Net Profit']
     
     # Risk metrics
-    if 'Net profit' in df.columns:
-        returns = df['Net profit']
-        metrics['Sharpe Ratio'] = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
-        
-        # Sortino
-        downside_returns = returns[returns < 0]
-        downside_std = downside_returns.std() if len(downside_returns) > 0 else 1
-        metrics['Sortino Ratio'] = (returns.mean() / downside_std * np.sqrt(252)) if downside_std > 0 else 0
+    if 'Net profit' in df.columns and format_type != 'day_of_week':
+        returns = df['Net profit'].dropna()
+        if len(returns) > 1 and returns.std() > 0:
+            metrics['Sharpe Ratio'] = (returns.mean() / returns.std() * np.sqrt(252))
+            
+            # Sortino
+            downside_returns = returns[returns < 0]
+            downside_std = downside_returns.std() if len(downside_returns) > 0 else 1
+            metrics['Sortino Ratio'] = (returns.mean() / downside_std * np.sqrt(252)) if downside_std > 0 else 0
+        else:
+            metrics['Sharpe Ratio'] = 0
+            metrics['Sortino Ratio'] = 0
     
     # Recovery Factor
-    if metrics['Max Drawdown'] != 0:
+    if metrics.get('Max Drawdown', 0) != 0:
         metrics['Recovery Factor'] = abs(metrics['Net Profit'] / metrics['Max Drawdown'])
     else:
         metrics['Recovery Factor'] = 0
@@ -151,9 +247,17 @@ def calculate_portfolio_metrics(dataframes, weights=None):
     if not dataframes:
         return {}, None
     
+    # Filter out day_of_week and other non-time-series formats
+    valid_dfs = {name: df for name, df in dataframes.items() 
+                 if df.attrs.get('format_type', 'period') in ['period', 'trades']}
+    
+    if not valid_dfs:
+        st.warning("Portfolio analysis requires time-series data (Daily, Weekly, Monthly, or Yearly formats)")
+        return {}, None
+    
     # Default to equal weights if not specified
     if weights is None:
-        weights = {name: 1.0 for name in dataframes.keys()}
+        weights = {name: 1.0 for name in valid_dfs.keys()}
     
     # Normalize weights to sum to 1
     total_weight = sum(weights.values())
@@ -162,7 +266,7 @@ def calculate_portfolio_metrics(dataframes, weights=None):
     # Combine data by Period
     combined_data = []
     
-    for name, df in dataframes.items():
+    for name, df in valid_dfs.items():
         if 'Period' in df.columns and 'Cum. net profit' in df.columns:
             weight = weights.get(name, 1.0)
             temp_df = df[['Period', 'Month_Year', 'Cum. net profit', 'Net profit']].copy()
@@ -180,7 +284,7 @@ def calculate_portfolio_metrics(dataframes, weights=None):
     for df in combined_data[1:]:
         combined = pd.merge(combined, df, on=['Period', 'Month_Year'], how='outer')
     
-    combined = combined.sort_values('Period').fillna(method='ffill').fillna(0)
+    combined = combined.sort_values('Period').ffill().fillna(0)
     
     # Calculate combined cumulative profit
     cum_cols = [col for col in combined.columns if '_Cum' in col]
@@ -190,814 +294,689 @@ def calculate_portfolio_metrics(dataframes, weights=None):
     net_cols = [col for col in combined.columns if '_Net' in col]
     combined['Portfolio_Net'] = combined[net_cols].sum(axis=1)
     
-    # Calculate correlations
-    correlations = {}
-    strategy_names = list(dataframes.keys())
-    
-    for i, name1 in enumerate(strategy_names):
-        for name2 in strategy_names[i+1:]:
-            col1 = f'{name1}_Net'
-            col2 = f'{name2}_Net'
-            if col1 in combined.columns and col2 in combined.columns:
-                corr = combined[col1].corr(combined[col2])
-                correlations[f"{name1} vs {name2}"] = corr
-    
-    # Portfolio summary metrics
+    # Calculate portfolio metrics
     portfolio_metrics = {}
     portfolio_metrics['Net Profit'] = combined['Portfolio_Cum'].iloc[-1]
-    portfolio_metrics['Peak Profit'] = combined['Portfolio_Cum'].max()
+    portfolio_metrics['Avg Period Return'] = combined['Portfolio_Net'].mean()
+    portfolio_metrics['Std Dev'] = combined['Portfolio_Net'].std()
     
-    # Drawdown
-    cumulative = combined['Portfolio_Cum']
-    running_max = cumulative.cummax()
-    drawdown = cumulative - running_max
+    if portfolio_metrics['Std Dev'] > 0:
+        portfolio_metrics['Sharpe Ratio'] = (portfolio_metrics['Avg Period Return'] / 
+                                            portfolio_metrics['Std Dev'] * np.sqrt(252))
+    else:
+        portfolio_metrics['Sharpe Ratio'] = 0
+    
+    # Max drawdown
+    running_max = combined['Portfolio_Cum'].cummax()
+    drawdown = combined['Portfolio_Cum'] - running_max
     portfolio_metrics['Max Drawdown'] = drawdown.min()
-    portfolio_metrics['Max Drawdown %'] = (drawdown / running_max * 100).min() if running_max.max() > 0 else 0
+    portfolio_metrics['Peak Profit'] = running_max.max()
     
-    # Risk metrics
-    returns = combined['Portfolio_Net']
-    portfolio_metrics['Sharpe Ratio'] = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+    if portfolio_metrics['Max Drawdown'] != 0:
+        portfolio_metrics['Recovery Factor'] = abs(portfolio_metrics['Net Profit'] / 
+                                                   portfolio_metrics['Max Drawdown'])
+    else:
+        portfolio_metrics['Recovery Factor'] = 0
     
-    downside_returns = returns[returns < 0]
-    downside_std = downside_returns.std() if len(downside_returns) > 0 else 1
-    portfolio_metrics['Sortino Ratio'] = (returns.mean() / downside_std * np.sqrt(252)) if downside_std > 0 else 0
-    
-    portfolio_metrics['Strategy Correlations'] = correlations
-    portfolio_metrics['Number of Strategies'] = len(dataframes)
-    
-    # Diversification benefit
-    if correlations:
-        avg_corr = np.mean(list(correlations.values()))
-        if avg_corr < 0.3:
-            portfolio_metrics['Diversification Benefit'] = 'Excellent'
-        elif avg_corr < 0.5:
-            portfolio_metrics['Diversification Benefit'] = 'Good'
-        elif avg_corr < 0.7:
-            portfolio_metrics['Diversification Benefit'] = 'Fair'
-        else:
-            portfolio_metrics['Diversification Benefit'] = 'Limited'
+    # Winning periods
+    winning = len(combined[combined['Portfolio_Net'] > 0])
+    portfolio_metrics['Period Win Rate'] = (winning / len(combined) * 100) if len(combined) > 0 else 0
     
     return portfolio_metrics, combined
 
-# ==================== STREAMLIT APP ====================
+def format_metric(value, metric_type='currency'):
+    """Format metrics for display"""
+    if pd.isna(value):
+        return "N/A"
+    if metric_type == 'currency':
+        return f"${value:,.2f}"
+    elif metric_type == 'percent':
+        return f"{value:.2f}%"
+    elif metric_type == 'ratio':
+        return f"{value:.2f}"
+    else:
+        return f"{value:.2f}"
 
-st.markdown('<h1 class="main-header">NinjaTrader Trade Analytics Dashboard</h1>', unsafe_allow_html=True)
+# ==================== MAIN APP ====================
 
-# Sidebar
-with st.sidebar:
-    st.image("https://via.placeholder.com/200x80/1f77b4/ffffff?text=TradeLens+Pro", use_container_width=True)
-    st.markdown("---")
-    
-    st.header("📁 Upload Trading Data")
-    st.markdown("*NinjaTrader Period Summary Reports*")
-    
-    uploaded_files = st.file_uploader(
-        "Upload CSV/Excel Files",
-        type=['csv', 'xlsx', 'xls'],
-        accept_multiple_files=True,
-        help="Upload NinjaTrader performance summary files"
-    )
-    
-    st.markdown("---")
-    
-    if uploaded_files:
-        st.subheader("Strategy Names")
-        strategy_names = {}
-        for i, file in enumerate(uploaded_files):
-            default_name = file.name.replace('.csv', '').replace('.xlsx', '').replace('.xls', '')
-            strategy_names[i] = st.text_input(
-                f"Strategy {i+1}",
-                value=default_name,
-                key=f"name_{i}",
-                label_visibility="collapsed"
-            )
-        
-        # Show combined account info
-        if len(uploaded_files) > 1:
-            st.success(f" {len(uploaded_files)} strategies loaded")
-            st.info(" Combined Account analysis available!")
-        else:
-            st.info(f" {len(uploaded_files)} strategy loaded")
-            st.caption("Upload 2+ strategies for portfolio analysis")
-    
-    st.markdown("---")
-    
-    # Analysis Options
-    st.subheader("⚙️ Analysis Options")
-    
-    # Position sizing
-    if uploaded_files and len(uploaded_files) > 1:
-        with st.expander(" Position Sizing / Allocation"):
-            st.caption("Adjust capital allocation to each strategy")
-            
-            allocation_mode = st.radio(
-                "Allocation Mode",
-                ["Equal Weight", "Custom Weight"],
-                help="Equal: Same capital to each strategy. Custom: Set your own allocation"
-            )
-            
-            if allocation_mode == "Custom Weight":
-                st.caption("Set allocation % for each strategy (must sum to 100%)")
-                # This will be used in processing
-                st.session_state['custom_allocation'] = True
-                
-                if 'strategy_weights' not in st.session_state:
-                    st.session_state['strategy_weights'] = {}
-                
-                # We'll populate this after files are loaded
-            else:
-                st.session_state['custom_allocation'] = False
-    
-    show_benchmark = st.checkbox("Add Buy & Hold Benchmark", value=False)
-    if show_benchmark:
-        benchmark_ticker = st.text_input("Ticker Symbol", value="ES=F", help="e.g., ES=F, NQ=F, SPY")
-        benchmark_capital = st.number_input("Initial Capital ($)", value=100000, step=10000)
-    
-    st.markdown("---")
-    st.caption("Built for NinjaTrader | Version 2.0")
+st.markdown('<p class="main-header">📊 NinjaTrader Trading Analytics Dashboard</p>', unsafe_allow_html=True)
 
-# Main Content
-if not uploaded_files:
-    st.info(" Upload your NinjaTrader performance summary files to begin analysis")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("###  Individual Analytics")
-        st.markdown("- Period-by-period performance")
-        st.markdown("- Risk-adjusted returns")
-        st.markdown("- Drawdown analysis")
-    
-    with col2:
-        st.markdown("###  Portfolio Analytics")
-        st.markdown("- Combined strategy performance")
-        st.markdown("- Strategy correlation analysis")
-        st.markdown("- Diversification benefits")
-    
-    with col3:
-        st.markdown("###  Benchmarking")
-        st.markdown("- Compare vs Buy & Hold")
-        st.markdown("- Monthly equity curves")
-        st.markdown("- Performance comparison")
-    
-    st.markdown("---")
-    st.markdown("###  NinjaTrader Export Instructions")
-    st.markdown("""
-    1. In NinjaTrader, go to **Performance** tab
-    2. Set your desired time period
-    3. Right-click and select **Export**
-    4. Save as CSV
-    5. Upload here for instant analytics
-    """)
+# File upload section
+st.sidebar.header("📁 Upload Trading Data")
+st.sidebar.markdown("Upload one or more NinjaTrader export files (CSV)")
+st.sidebar.markdown("**Supported formats:**")
+st.sidebar.markdown("- Daily/Weekly/Monthly/Yearly summaries")
+st.sidebar.markdown("- Day of Week analysis")
+st.sidebar.markdown("- Individual Trade exports")
 
-else:
-    # Load and process all files
-    dataframes = {}
-    
-    for i, file in enumerate(uploaded_files):
-        df = parse_ninjatrader_period_file(file)
+uploaded_files = st.sidebar.file_uploader(
+    "Choose CSV files", 
+    type=['csv', 'xlsx'],
+    accept_multiple_files=True
+)
+
+# Process uploaded files
+dataframes = {}
+if uploaded_files:
+    for file in uploaded_files:
+        df = parse_ninjatrader_file(file)
         if df is not None:
-            strategy_name = strategy_names.get(i, f"Strategy {i+1}")
-            df = process_period_data(df)
+            strategy_name = file.name.replace('.csv', '').replace('.xlsx', '')
             dataframes[strategy_name] = df
+            format_type = df.attrs.get('format_type', 'unknown')
+            st.sidebar.success(f"✅ {strategy_name} ({format_type} format)")
+
+if not dataframes:
+    st.info("👆 Please upload one or more NinjaTrader CSV files to begin analysis")
+    st.markdown("""
+    ### Quick Start Guide
     
-    if not dataframes:
-        st.error("No valid data found in uploaded files. Please check your file format.")
-        st.stop()
+    1. **Export data from NinjaTrader** using any of these formats:
+       - Performance > Period Summary (Daily, Weekly, Monthly, Yearly)
+       - Performance > Day of Week Analysis
+       - Trade Performance > Executions
     
-    # Handle custom allocation weights
-    allocation_weights = None
-    if st.session_state.get('custom_allocation', False):
-        with st.sidebar.expander(" Position Sizing / Allocation", expanded=True):
-            st.caption("Set allocation % for each strategy (must sum to 100%)")
-            
-            weights = {}
-            total = 0
-            
-            for name in dataframes.keys():
-                weight = st.number_input(
-                    f"{name} (%)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=100.0 / len(dataframes),
-                    step=5.0,
-                    key=f"weight_{name}"
-                )
-                weights[name] = weight / 100.0  # Convert to decimal
-                total += weight
-            
-            if abs(total - 100) > 0.01:
-                st.warning(f" Total allocation: {total:.1f}% (should be 100%)")
-            else:
-                st.success(f" Total allocation: {total:.1f}%")
-                allocation_weights = weights
+    2. **Upload your CSV files** using the sidebar
     
-    # Create tabs
-    tabs = st.tabs([
-        "Dashboard",
-        "Combined Account",
-        "Individual Strategies",
-        "Portfolio Analysis",
-        "Equity Curves",
-        "Drawdown Analysis",
-        "Period Analysis"
-    ])
+    3. **Explore your analytics** across multiple tabs:
+       - Overview metrics and comparisons
+       - Time series analysis
+       - Performance distributions
+       - Portfolio analysis (combine multiple strategies)
+       - And more!
+    """)
+    st.stop()
+
+# Create tabs
+tab_names = ["📈 Overview", "📊 Performance", "📉 Risk Metrics", "⏰ Time Analysis", 
+             "🎯 Portfolio", "💧 Drawdown", "📅 Period Analysis"]
+tabs = st.tabs(tab_names)
+
+# ==================== TAB 1: OVERVIEW ====================
+with tabs[0]:
+    st.header("Strategy Overview")
     
-    # ==================== TAB 1: DASHBOARD ====================
-    with tabs[0]:
-        st.header("Performance Dashboard")
+    if len(dataframes) == 1:
+        # Single strategy view
+        strategy_name = list(dataframes.keys())[0]
+        df = dataframes[strategy_name]
+        format_type = df.attrs.get('format_type', 'period')
         
-        # Calculate portfolio metrics with weights
-        portfolio_metrics, combined_df = calculate_portfolio_metrics(dataframes, allocation_weights)
+        st.subheader(f"📊 {strategy_name}")
+        st.caption(f"Format: {format_type}")
         
-        # Key Metrics Row
-        col1, col2, col3, col4, col5 = st.columns(5)
+        metrics = calculate_summary_metrics(df)
+        
+        # Display key metrics
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric(
-                "Portfolio Net Profit",
-                f"${portfolio_metrics.get('Net Profit', 0):,.2f}",
-                delta=f"{len(dataframes)} Strategies"
-            )
+            st.metric("Net Profit", format_metric(metrics.get('Net Profit', 0)))
+            st.metric("Win Rate", format_metric(metrics.get('Win Rate', 0), 'percent'))
         
         with col2:
-            st.metric(
-                "Peak Profit",
-                f"${portfolio_metrics.get('Peak Profit', 0):,.2f}"
-            )
+            st.metric("Profit Factor", format_metric(metrics.get('Profit Factor', 0), 'ratio'))
+            st.metric("Avg Trade", format_metric(metrics.get('Avg Trade', 0)))
         
         with col3:
-            st.metric(
-                "Sharpe Ratio",
-                f"{portfolio_metrics.get('Sharpe Ratio', 0):.2f}",
-                delta="Excellent" if portfolio_metrics.get('Sharpe Ratio', 0) > 1 else "Fair"
-            )
+            st.metric("Max Drawdown", format_metric(metrics.get('Max Drawdown', 0)))
+            st.metric("Recovery Factor", format_metric(metrics.get('Recovery Factor', 0), 'ratio'))
         
         with col4:
-            st.metric(
-                "Sortino Ratio",
-                f"{portfolio_metrics.get('Sortino Ratio', 0):.2f}"
-            )
+            st.metric("Sharpe Ratio", format_metric(metrics.get('Sharpe Ratio', 0), 'ratio'))
+            st.metric("Total Periods", f"{metrics.get('Total Periods', 0)}")
         
-        with col5:
-            st.metric(
-                "Max Drawdown",
-                f"${portfolio_metrics.get('Max Drawdown', 0):,.2f}",
-                delta=f"{portfolio_metrics.get('Max Drawdown %', 0):.1f}%",
-                delta_color="inverse"
-            )
+        # Additional metrics
+        st.subheader("Detailed Statistics")
+        col1, col2, col3 = st.columns(3)
         
-        st.markdown("---")
+        with col1:
+            st.markdown("**💰 Profit Metrics**")
+            st.write(f"Gross Profit: {format_metric(metrics.get('Gross Profit', 0))}")
+            st.write(f"Gross Loss: {format_metric(metrics.get('Gross Loss', 0))}")
+            st.write(f"Commission: {format_metric(metrics.get('Total Commission', 0))}")
+            st.write(f"Peak Profit: {format_metric(metrics.get('Peak Profit', 0))}")
         
-        # Strategy Performance Summary
-        st.subheader("Strategy Performance Summary")
-        summary_data = []
-        for name, df in dataframes.items():
-            metrics = calculate_summary_metrics(df)
-            summary_data.append({
-                'Strategy': name,
-                'Net Profit': f"${metrics.get('Net Profit', 0):,.2f}",
-                'Win Rate': f"{metrics.get('Win Rate', 0):.1f}%",
-                'Profit Factor': f"{metrics.get('Profit Factor', 0):.2f}",
-                'Sharpe': f"{metrics.get('Sharpe Ratio', 0):.2f}",
-                'Max DD': f"${metrics.get('Max Drawdown', 0):,.2f}",
-                'Periods': metrics.get('Total Periods', 0)
-            })
+        with col2:
+            st.markdown("**📊 Trade Metrics**")
+            st.write(f"Avg Winner: {format_metric(metrics.get('Avg Winner', 0))}")
+            st.write(f"Avg Loser: {format_metric(metrics.get('Avg Loser', 0))}")
+            st.write(f"Largest Winner: {format_metric(metrics.get('Largest Winner', 0))}")
+            st.write(f"Largest Loser: {format_metric(metrics.get('Largest Loser', 0))}")
         
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    # ==================== TAB 2: COMBINED ACCOUNT ====================
-    with tabs[1]:
-        st.header("Combined Account View")
+        with col3:
+            st.markdown("**🎯 Performance Metrics**")
+            st.write(f"Sortino Ratio: {format_metric(metrics.get('Sortino Ratio', 0), 'ratio')}")
+            st.write(f"Period Win Rate: {format_metric(metrics.get('Period Win Rate', 0), 'percent')}")
+            st.write(f"Profitable Periods: {metrics.get('Profitable Periods', 0)}")
+            st.write(f"Avg MAE: {format_metric(metrics.get('Avg MAE', 0))}")
         
-        # Show allocation if custom
-        if allocation_weights:
-            st.info("Using custom allocation weights")
-            weight_display = " | ".join([f"{name}: {w*100:.0f}%" for name, w in allocation_weights.items()])
-            st.caption(weight_display)
-        else:
-            st.info("Using equal weight allocation across all strategies")
-        
-        st.markdown("---")
-        
-        if combined_df is not None and len(dataframes) > 1:
+        # Equity curve (only for time-series formats)
+        if format_type in ['period', 'trades'] and 'Cum. net profit' in df.columns:
+            st.subheader("Equity Curve")
             
-            # Quick comparison box
-            st.subheader("Combined vs Individual - Quick Comparison")
-            
-            # Calculate averages for individual strategies
-            individual_metrics = []
-            for name, df in dataframes.items():
-                metrics = calculate_summary_metrics(df)
-                individual_metrics.append(metrics)
-            
-            avg_individual_profit = np.mean([m.get('Net Profit', 0) for m in individual_metrics])
-            avg_individual_sharpe = np.mean([m.get('Sharpe Ratio', 0) for m in individual_metrics])
-            avg_individual_dd = np.mean([abs(m.get('Max Drawdown', 0)) for m in individual_metrics])
-            
-            combined_profit = portfolio_metrics.get('Net Profit', 0)
-            combined_sharpe = portfolio_metrics.get('Sharpe Ratio', 0)
-            combined_dd = abs(portfolio_metrics.get('Max Drawdown', 0))
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric(
-                    "Combined Net Profit",
-                    f"${combined_profit:,.2f}",
-                    delta=f"vs ${avg_individual_profit:,.2f} avg individual"
-                )
-            
-            with col2:
-                sharpe_improvement = ((combined_sharpe - avg_individual_sharpe) / avg_individual_sharpe * 100) if avg_individual_sharpe != 0 else 0
-                st.metric(
-                    "Combined Sharpe Ratio",
-                    f"{combined_sharpe:.2f}",
-                    delta=f"{sharpe_improvement:+.1f}% vs individual",
-                    delta_color="normal" if sharpe_improvement > 0 else "inverse"
-                )
-            
-            with col3:
-                dd_improvement = ((avg_individual_dd - combined_dd) / avg_individual_dd * 100) if avg_individual_dd != 0 else 0
-                st.metric(
-                    "Combined Max DD",
-                    f"${combined_dd:,.2f}",
-                    delta=f"{dd_improvement:+.1f}% better than avg",
-                    delta_color="normal" if dd_improvement > 0 else "inverse"
-                )
-            
-            with col4:
-                diversification = portfolio_metrics.get('Diversification Benefit', 'Unknown')
-                color_map = {'Excellent': '🟢', 'Good': '🟡', 'Fair': '🟠', 'Limited': '🔴'}
-                st.metric(
-                    "Diversification",
-                    f"{color_map.get(diversification, '⚪')} {diversification}",
-                )
-            
-            st.markdown("---")
-            
-            # Combined Period-by-Period Performance
-            st.subheader("Period-by-Period Combined Performance")
-            
-            # Create period performance chart
             fig, ax = plt.subplots(figsize=(14, 6))
             
-            # Bar chart of period returns
-            colors = ['green' if x > 0 else 'red' for x in combined_df['Portfolio_Net']]
-            ax.bar(range(len(combined_df)), combined_df['Portfolio_Net'], color=colors, alpha=0.6)
-            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
-            ax.set_title('Combined Account - Period Returns', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Period Number', fontsize=12)
-            ax.set_ylabel('Net Profit ($)', fontsize=12)
-            ax.grid(True, alpha=0.3, axis='y')
-            plt.tight_layout()
-            st.pyplot(fig)
+            cumulative = df['Cum. net profit'].dropna()
+            if format_type == 'trades':
+                x_values = range(len(cumulative))
+                ax.plot(x_values, cumulative, linewidth=2, color='#2ecc71')
+                ax.set_xlabel('Trade Number', fontsize=12)
+            else:
+                ax.plot(df.index, cumulative, linewidth=2, color='#2ecc71')
+                ax.set_xlabel('Period', fontsize=12)
             
-            # Combined equity curve with individual contributions
-            st.subheader("Combined Account Equity Curve")
-            
-            fig, ax = plt.subplots(figsize=(14, 7))
-            
-            # Plot individual strategies in background
-            cum_cols = [col for col in combined_df.columns if '_Cum' in col and col != 'Portfolio_Cum']
-            for col in cum_cols:
-                strategy_name = col.replace('_Cum', '')
-                ax.plot(combined_df.index, combined_df[col], label=strategy_name, 
-                       linewidth=1, alpha=0.4, linestyle='--')
-            
-            # Plot combined portfolio prominently
-            ax.plot(combined_df.index, combined_df['Portfolio_Cum'], 
-                   label='Combined Account', linewidth=3, color='#2ecc71')
-            
-            ax.set_title('Combined Account Equity Curve (All Strategies)', 
-                        fontsize=16, fontweight='bold', pad=20)
-            ax.set_xlabel('Period', fontsize=12)
+            ax.set_title(f'{strategy_name} - Cumulative Profit', fontsize=16, fontweight='bold', pad=20)
             ax.set_ylabel('Cumulative Profit ($)', fontsize=12)
-            ax.legend(loc='best', fontsize=10)
-            ax.grid(True, alpha=0.3)
-            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.3)
-            plt.tight_layout()
-            st.pyplot(fig)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.5)
             
-            # Strategy contribution breakdown
-            st.subheader("Strategy Contribution to Combined Account")
+            # Add stats box
+            stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
+            stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
+            stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
             
-            # Calculate each strategy's contribution
-            contributions = {}
-            for col in cum_cols:
-                strategy_name = col.replace('_Cum', '')
-                final_value = combined_df[col].iloc[-1]
-                contributions[strategy_name] = final_value
-            
-            # Create pie chart
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-            
-            # Pie chart of final contributions
-            colors_pie = plt.cm.Set3(range(len(contributions)))
-            wedges, texts, autotexts = ax1.pie(contributions.values(), 
-                                               labels=contributions.keys(),
-                                               autopct='%1.1f%%',
-                                               colors=colors_pie,
-                                               startangle=90)
-            ax1.set_title('Profit Contribution by Strategy', fontsize=12, fontweight='bold')
-            
-            # Make percentage text more readable
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontsize(10)
-                autotext.set_weight('bold')
-            
-            # Bar chart of contributions
-            ax2.bar(contributions.keys(), contributions.values(), color=colors_pie)
-            ax2.set_title('Final Profit Contribution ($)', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('Profit ($)')
-            ax2.grid(True, alpha=0.3, axis='y')
-            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                   verticalalignment='top', bbox=dict(boxstyle='round', 
+                   facecolor='wheat', alpha=0.5), fontsize=10)
             
             plt.tight_layout()
             st.pyplot(fig)
+    
+    else:
+        # Multiple strategies comparison
+        st.subheader("📊 Strategy Comparison")
+        
+        # Calculate metrics for all strategies
+        all_metrics = {}
+        for name, df in dataframes.items():
+            all_metrics[name] = calculate_summary_metrics(df)
+        
+        # Create comparison dataframe
+        comparison_metrics = [
+            'Net Profit', 'Profit Factor', 'Win Rate', 'Sharpe Ratio', 
+            'Max Drawdown', 'Recovery Factor', 'Avg Trade', 'Total Periods'
+        ]
+        
+        comparison_data = []
+        for metric in comparison_metrics:
+            row = {'Metric': metric}
+            for name in all_metrics.keys():
+                value = all_metrics[name].get(metric, 0)
+                if metric in ['Win Rate', 'Period Win Rate']:
+                    row[name] = format_metric(value, 'percent')
+                elif metric in ['Profit Factor', 'Sharpe Ratio', 'Sortino Ratio', 'Recovery Factor']:
+                    row[name] = format_metric(value, 'ratio')
+                elif metric == 'Total Periods':
+                    row[name] = int(value)
+                else:
+                    row[name] = format_metric(value)
+            comparison_data.append(row)
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        
+        # Visual comparison
+        st.subheader("Visual Comparison")
+        
+        metrics_to_plot = ['Net Profit', 'Profit Factor', 'Win Rate', 'Sharpe Ratio']
+        
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        axes = axes.flatten()
+        
+        for idx, metric in enumerate(metrics_to_plot):
+            ax = axes[idx]
+            strategies = list(all_metrics.keys())
+            values = [all_metrics[s].get(metric, 0) for s in strategies]
             
-            # Combined account statistics
-            st.subheader("Combined Account Statistics")
+            colors = ['#2ecc71' if v > 0 else '#e74c3c' for v in values]
+            ax.bar(strategies, values, color=colors, alpha=0.7, edgecolor='black')
             
+            ax.set_title(metric, fontsize=12, fontweight='bold')
+            ax.set_ylabel('Value', fontsize=10)
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.5)
+            
+            if metric in ['Win Rate']:
+                ax.set_ylabel('%', fontsize=10)
+            elif metric in ['Net Profit', 'Avg Trade', 'Max Drawdown']:
+                ax.set_ylabel('$', fontsize=10)
+            
+            # Rotate x labels if many strategies
+            if len(strategies) > 3:
+                ax.set_xticklabels(strategies, rotation=45, ha='right')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+
+# ==================== TAB 2: PERFORMANCE ====================
+with tabs[1]:
+    st.header("Performance Analysis")
+    
+    selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="perf_select")
+    df = dataframes[selected_strategy]
+    format_type = df.attrs.get('format_type', 'period')
+    
+    if 'Net profit' in df.columns:
+        st.subheader("Period Performance")
+        
+        net_profit = df['Net profit'].dropna()
+        
+        if len(net_profit) > 0:
+            # Create performance visualization
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+            
+            # Bar chart of returns
+            if format_type == 'day_of_week':
+                x_labels = df['Period']
+                x_pos = range(len(x_labels))
+                colors = ['#2ecc71' if x > 0 else '#e74c3c' for x in net_profit]
+                ax1.bar(x_pos, net_profit, color=colors, alpha=0.7, edgecolor='black')
+                ax1.set_xticks(x_pos)
+                ax1.set_xticklabels(x_labels, rotation=0)
+                ax1.set_xlabel('Day of Week', fontsize=12)
+            else:
+                colors = ['#2ecc71' if x > 0 else '#e74c3c' for x in net_profit]
+                ax1.bar(range(len(net_profit)), net_profit, color=colors, alpha=0.7, edgecolor='black')
+                ax1.set_xlabel('Period', fontsize=12)
+            
+            ax1.set_title('Period Returns', fontsize=14, fontweight='bold')
+            ax1.set_ylabel('Net Profit ($)', fontsize=12)
+            ax1.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            ax1.grid(True, alpha=0.3, axis='y')
+            
+            # Win/Loss distribution
+            wins = net_profit[net_profit > 0]
+            losses = net_profit[net_profit < 0]
+            
+            if len(wins) > 0 or len(losses) > 0:
+                categories = []
+                values = []
+                colors_pie = []
+                
+                if len(wins) > 0:
+                    categories.append(f'Wins ({len(wins)})')
+                    values.append(wins.sum())
+                    colors_pie.append('#2ecc71')
+                
+                if len(losses) > 0:
+                    categories.append(f'Losses ({len(losses)})')
+                    values.append(abs(losses.sum()))
+                    colors_pie.append('#e74c3c')
+                
+                if len(values) > 0:
+                    ax2.pie(values, labels=categories, autopct='%1.1f%%', 
+                           colors=colors_pie, startangle=90)
+                    ax2.set_title('Win/Loss Distribution (by $)', fontsize=14, fontweight='bold')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Statistics
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                total_periods = len(combined_df)
-                profitable_periods = len(combined_df[combined_df['Portfolio_Net'] > 0])
-                st.metric("Total Periods", total_periods)
-                st.metric("Profitable Periods", profitable_periods)
-                st.metric("Period Win Rate", f"{(profitable_periods/total_periods*100):.1f}%")
-            
+                st.metric("Total Returns", format_metric(net_profit.sum()))
             with col2:
-                avg_period_return = combined_df['Portfolio_Net'].mean()
-                median_period_return = combined_df['Portfolio_Net'].median()
-                std_period_return = combined_df['Portfolio_Net'].std()
-                st.metric("Avg Period Return", f"${avg_period_return:,.2f}")
-                st.metric("Median Period Return", f"${median_period_return:,.2f}")
-                st.metric("Std Dev", f"${std_period_return:,.2f}")
-            
+                st.metric("Mean Return", format_metric(net_profit.mean()))
             with col3:
-                best_period = combined_df['Portfolio_Net'].max()
-                worst_period = combined_df['Portfolio_Net'].min()
-                st.metric("Best Period", f"${best_period:,.2f}")
-                st.metric("Worst Period", f"${worst_period:,.2f}")
-                st.metric("Best/Worst Ratio", f"{abs(best_period/worst_period):.2f}")
-            
+                st.metric("Best Period", format_metric(net_profit.max()))
             with col4:
-                # Calculate streak statistics
-                wins = (combined_df['Portfolio_Net'] > 0).astype(int)
-                winning_streaks = []
-                losing_streaks = []
-                current_streak = 0
-                current_type = None
-                
-                for win in wins:
-                    if win == 1:
-                        if current_type == 'win':
-                            current_streak += 1
-                        else:
-                            if current_type == 'loss' and current_streak > 0:
-                                losing_streaks.append(current_streak)
-                            current_streak = 1
-                            current_type = 'win'
-                    else:
-                        if current_type == 'loss':
-                            current_streak += 1
-                        else:
-                            if current_type == 'win' and current_streak > 0:
-                                winning_streaks.append(current_streak)
-                            current_streak = 1
-                            current_type = 'loss'
-                
-                max_win_streak = max(winning_streaks) if winning_streaks else 0
-                max_loss_streak = max(losing_streaks) if losing_streaks else 0
-                
-                st.metric("Max Win Streak", f"{max_win_streak} periods")
-                st.metric("Max Loss Streak", f"{max_loss_streak} periods")
-                st.metric("Current Streak", f"{'Win' if wins.iloc[-1] else 'Loss'}")
+                st.metric("Worst Period", format_metric(net_profit.min()))
+    
+    # Winning % by period type
+    if format_type == 'day_of_week' and 'Period' in df.columns and '% Win' in df.columns:
+        st.subheader("Win Rate by Day of Week")
+        
+        fig, ax = plt.subplots(figsize=(10, 5))
+        
+        days = df['Period']
+        win_rates = df['% Win']
+        
+        colors = ['#2ecc71' if x >= 50 else '#e74c3c' for x in win_rates]
+        ax.bar(days, win_rates, color=colors, alpha=0.7, edgecolor='black')
+        
+        ax.set_title('Win Rate by Day of Week', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Day', fontsize=12)
+        ax.set_ylabel('Win Rate (%)', fontsize=12)
+        ax.axhline(y=50, color='black', linestyle='--', linewidth=1, alpha=0.5, label='Break-even')
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.legend()
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+
+# ==================== TAB 3: RISK METRICS ====================
+with tabs[2]:
+    st.header("Risk Analysis")
+    
+    selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="risk_select")
+    df = dataframes[selected_strategy]
+    format_type = df.attrs.get('format_type', 'period')
+    metrics = calculate_summary_metrics(df)
+    
+    # Risk metrics display
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.subheader("📉 Downside Risk")
+        st.metric("Max Drawdown", format_metric(metrics.get('Max Drawdown', 0)))
+        st.metric("Largest Loss", format_metric(metrics.get('Largest Loser', 0)))
+        st.metric("Avg Loss", format_metric(metrics.get('Avg Loser', 0)))
+    
+    with col2:
+        st.subheader("⚖️ Risk-Adjusted Returns")
+        st.metric("Sharpe Ratio", format_metric(metrics.get('Sharpe Ratio', 0), 'ratio'))
+        st.metric("Sortino Ratio", format_metric(metrics.get('Sortino Ratio', 0), 'ratio'))
+        st.metric("Recovery Factor", format_metric(metrics.get('Recovery Factor', 0), 'ratio'))
+    
+    with col3:
+        st.subheader("📊 Efficiency Metrics")
+        st.metric("Profit Factor", format_metric(metrics.get('Profit Factor', 0), 'ratio'))
+        st.metric("Win Rate", format_metric(metrics.get('Win Rate', 0), 'percent'))
+        st.metric("Avg MAE", format_metric(metrics.get('Avg MAE', 0)))
+    
+    # Risk visualization
+    if 'Net profit' in df.columns and format_type != 'day_of_week':
+        st.subheader("Return Distribution")
+        
+        returns = df['Net profit'].dropna()
+        
+        if len(returns) > 5:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
             
-            st.markdown("---")
-            
-            # Strategy correlation impact
-            st.subheader("Diversification Benefits")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### Why Trade Multiple Strategies?")
-                
-                # Calculate individual strategy stats
-                individual_sharpes = []
-                individual_max_dds = []
-                for name, df in dataframes.items():
-                    metrics = calculate_summary_metrics(df)
-                    individual_sharpes.append(metrics.get('Sharpe Ratio', 0))
-                    individual_max_dds.append(abs(metrics.get('Max Drawdown', 0)))
-                
-                avg_individual_sharpe = np.mean(individual_sharpes)
-                portfolio_sharpe = portfolio_metrics.get('Sharpe Ratio', 0)
-                
-                avg_individual_dd = np.mean(individual_max_dds)
-                portfolio_dd = abs(portfolio_metrics.get('Max Drawdown', 0))
-                
-                st.write(f"**Average Individual Sharpe:** {avg_individual_sharpe:.2f}")
-                st.write(f"**Combined Portfolio Sharpe:** {portfolio_sharpe:.2f}")
-                
-                if portfolio_sharpe > avg_individual_sharpe:
-                    improvement = ((portfolio_sharpe - avg_individual_sharpe) / avg_individual_sharpe * 100)
-                    st.success(f"✅ {improvement:.1f}% improvement in risk-adjusted returns!")
-                
-                st.write(f"**Average Individual Max DD:** ${avg_individual_dd:,.2f}")
-                st.write(f"**Combined Portfolio Max DD:** ${portfolio_dd:,.2f}")
-                
-                if portfolio_dd < avg_individual_dd:
-                    improvement = ((avg_individual_dd - portfolio_dd) / avg_individual_dd * 100)
-                    st.success(f"✅ {improvement:.1f}% reduction in maximum drawdown!")
-            
-            with col2:
-                st.markdown("#### Portfolio Benefits Summary")
-                
-                diversification = portfolio_metrics.get('Diversification Benefit', 'Unknown')
-                
-                if diversification == 'Excellent':
-                    st.success("🌟 **Excellent Diversification**")
-                    st.write("Your strategies have low correlation, providing strong diversification benefits.")
-                elif diversification == 'Good':
-                    st.info("✅ **Good Diversification**")
-                    st.write("Your strategies complement each other well.")
-                elif diversification == 'Fair':
-                    st.warning("⚠️ **Fair Diversification**")
-                    st.write("Some correlation between strategies. Consider adding uncorrelated strategies.")
-                else:
-                    st.error("❌ **Limited Diversification**")
-                    st.write("High correlation between strategies reduces diversification benefits.")
-                
-                st.markdown("---")
-                
-                st.write("**Key Benefits of This Portfolio:**")
-                st.write("✓ Smoother equity curve")
-                st.write("✓ Reduced drawdown risk")
-                st.write("✓ More consistent returns")
-                st.write("✓ Better risk-adjusted performance")
-            
-            st.markdown("---")
-            
-            # Rolling performance metrics
-            st.subheader("Rolling Performance Analysis")
-            
-            window = st.slider("Rolling Window (periods)", 10, 50, 20)
-            
-            # Calculate rolling metrics
-            rolling_sharpe = []
-            rolling_win_rate = []
-            
-            for i in range(window, len(combined_df)):
-                window_data = combined_df.iloc[i-window:i]['Portfolio_Net']
-                
-                # Rolling Sharpe
-                if window_data.std() > 0:
-                    sharpe = (window_data.mean() / window_data.std() * np.sqrt(252))
-                    rolling_sharpe.append(sharpe)
-                else:
-                    rolling_sharpe.append(0)
-                
-                # Rolling win rate
-                win_rate = (window_data > 0).sum() / len(window_data) * 100
-                rolling_win_rate.append(win_rate)
-            
-            # Plot rolling metrics
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8))
-            
-            x_vals = range(window, len(combined_df))
-            
-            ax1.plot(x_vals, rolling_sharpe, linewidth=2, color='#3498db')
-            ax1.axhline(y=1, color='green', linestyle='--', linewidth=1, alpha=0.5, label='Good (>1)')
-            ax1.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
-            ax1.set_title(f'Rolling Sharpe Ratio ({window}-period window)', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('Sharpe Ratio')
+            # Histogram
+            ax1.hist(returns, bins=min(30, len(returns)//2), alpha=0.7, color='steelblue', edgecolor='black')
+            ax1.axvline(returns.mean(), color='red', linestyle='--', linewidth=2, label=f'Mean: ${returns.mean():.2f}')
+            ax1.axvline(returns.median(), color='green', linestyle='--', linewidth=2, label=f'Median: ${returns.median():.2f}')
+            ax1.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            ax1.set_title('Return Distribution', fontsize=14, fontweight='bold')
+            ax1.set_xlabel('Net Profit ($)', fontsize=12)
+            ax1.set_ylabel('Frequency', fontsize=12)
             ax1.legend()
             ax1.grid(True, alpha=0.3)
             
-            ax2.plot(x_vals, rolling_win_rate, linewidth=2, color='#e74c3c')
-            ax2.axhline(y=50, color='black', linestyle='--', linewidth=1, alpha=0.5, label='50%')
-            ax2.set_title(f'Rolling Win Rate ({window}-period window)', fontsize=12, fontweight='bold')
-            ax2.set_xlabel('Period')
-            ax2.set_ylabel('Win Rate (%)')
+            # Q-Q plot approximation (sorted returns)
+            sorted_returns = np.sort(returns)
+            theoretical_quantiles = np.linspace(returns.min(), returns.max(), len(sorted_returns))
+            
+            ax2.scatter(theoretical_quantiles, sorted_returns, alpha=0.5)
+            ax2.plot([returns.min(), returns.max()], [returns.min(), returns.max()], 
+                    'r--', linewidth=2, label='Normal')
+            ax2.set_title('Returns vs Uniform Distribution', fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Theoretical Values', fontsize=12)
+            ax2.set_ylabel('Observed Returns', fontsize=12)
             ax2.legend()
             ax2.grid(True, alpha=0.3)
             
             plt.tight_layout()
             st.pyplot(fig)
             
-        elif len(dataframes) == 1:
-            st.warning("Upload multiple strategy files to see combined account analysis")
-            st.info("Upload 2 or more strategies to see how they work together in one account!")
-        else:
-            st.error("No data available")
+            # Stats
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Skewness", f"{returns.skew():.2f}")
+            with col2:
+                st.metric("Kurtosis", f"{returns.kurtosis():.2f}")
+            with col3:
+                st.metric("Std Dev", format_metric(returns.std()))
+            with col4:
+                downside = returns[returns < 0]
+                st.metric("Downside Dev", format_metric(downside.std() if len(downside) > 0 else 0))
+
+# ==================== TAB 4: TIME ANALYSIS ====================
+with tabs[3]:
+    st.header("Time-Based Analysis")
     
-    # ==================== TAB 3: INDIVIDUAL STRATEGIES ====================
-    with tabs[2]:
-        st.header("Individual Strategy Analysis")
-        
-        selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()))
-        df = dataframes[selected_strategy]
-        metrics = calculate_summary_metrics(df)
-        
-        # Metrics Grid
-        st.subheader("Performance Metrics")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.markdown("#### Profitability")
-            st.metric("Net Profit", f"${metrics.get('Net Profit', 0):,.2f}")
-            st.metric("Gross Profit", f"${metrics.get('Gross Profit', 0):,.2f}")
-            st.metric("Gross Loss", f"${metrics.get('Gross Loss', 0):,.2f}")
-            st.metric("Profit Factor", f"{metrics.get('Profit Factor', 0):.2f}")
-        
-        with col2:
-            st.markdown("#### Trade Quality")
-            st.metric("Win Rate", f"{metrics.get('Win Rate', 0):.2f}%")
-            st.metric("Avg Trade", f"${metrics.get('Avg Trade', 0):,.2f}")
-            st.metric("Avg Winner", f"${metrics.get('Avg Winner', 0):,.2f}")
-            st.metric("Avg Loser", f"${metrics.get('Avg Loser', 0):,.2f}")
-        
-        with col3:
-            st.markdown("#### Risk Metrics")
-            st.metric("Max Drawdown", f"${metrics.get('Max Drawdown', 0):,.2f}")
-            st.metric("Peak Profit", f"${metrics.get('Peak Profit', 0):,.2f}")
-            st.metric("Sharpe Ratio", f"{metrics.get('Sharpe Ratio', 0):.2f}")
-            st.metric("Sortino Ratio", f"{metrics.get('Sortino Ratio', 0):.2f}")
-        
-        with col4:
-            st.markdown("#### Trade Stats")
-            st.metric("Largest Winner", f"${metrics.get('Largest Winner', 0):,.2f}")
-            st.metric("Largest Loser", f"${metrics.get('Largest Loser', 0):,.2f}")
-            st.metric("Avg MAE", f"${metrics.get('Avg MAE', 0):,.2f}")
-            st.metric("Avg MFE", f"${metrics.get('Avg MFE', 0):,.2f}")
-        
-        st.markdown("---")
-        
-        # Period Statistics
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### Period Statistics")
-            st.metric("Total Periods", f"{metrics.get('Total Periods', 0)}")
-            st.metric("Profitable Periods", f"{metrics.get('Profitable Periods', 0)}")
-            st.metric("Period Win Rate", f"{metrics.get('Period Win Rate', 0):.1f}%")
-        
-        with col2:
-            st.markdown("#### Risk/Reward")
-            st.metric("Recovery Factor", f"{metrics.get('Recovery Factor', 0):.2f}")
-            st.metric("Total Commission", f"${metrics.get('Total Commission', 0):,.2f}")
+    selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="time_select")
+    df = dataframes[selected_strategy]
+    format_type = df.attrs.get('format_type', 'period')
     
-    # ==================== TAB 4: PORTFOLIO ANALYSIS ====================
-    with tabs[3]:
-        st.header("Portfolio Analysis")
+    if format_type == 'day_of_week':
+        st.subheader("Performance by Day of Week")
         
-        st.subheader("Strategy Correlation Matrix")
-        
-        if len(dataframes) > 1 and combined_df is not None:
-            # Create correlation matrix from net profit columns
-            net_cols = [col for col in combined_df.columns if '_Net' in col and col != 'Portfolio_Net']
+        if 'Period' in df.columns and 'Net profit' in df.columns:
+            fig, ax = plt.subplots(figsize=(12, 6))
             
-            if len(net_cols) > 1:
-                corr_data = combined_df[net_cols].copy()
-                corr_data.columns = [col.replace('_Net', '') for col in corr_data.columns]
-                corr_matrix = corr_data.corr()
-                
-                # Plot heatmap
-                fig, ax = plt.subplots(figsize=(10, 8))
-                sns.heatmap(corr_matrix, annot=True, cmap='RdYlGn', center=0, 
-                           square=True, linewidths=1, cbar_kws={"shrink": 0.8},
-                           fmt='.2f', ax=ax, vmin=-1, vmax=1)
-                ax.set_title('Strategy Correlation Heatmap', fontsize=14, fontweight='bold', pad=15)
-                plt.tight_layout()
-                st.pyplot(fig)
-                
-                st.info(f"**Diversification Benefit:** {portfolio_metrics.get('Diversification Benefit', 'Unknown')}")
-                st.caption("Lower correlations (closer to 0 or negative) indicate better diversification")
-        else:
-            st.info("Upload multiple strategies to see correlation analysis")
-        
-        st.markdown("---")
-        
-        # Combined Performance
-        st.subheader("Portfolio Metrics")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Portfolio Net Profit", f"${portfolio_metrics.get('Net Profit', 0):,.2f}")
-            st.metric("Portfolio Peak Profit", f"${portfolio_metrics.get('Peak Profit', 0):,.2f}")
-        
-        with col2:
-            st.metric("Portfolio Sharpe", f"{portfolio_metrics.get('Sharpe Ratio', 0):.2f}")
-            st.metric("Portfolio Sortino", f"{portfolio_metrics.get('Sortino Ratio', 0):.2f}")
-        
-        with col3:
-            st.metric("Portfolio Max DD", f"${portfolio_metrics.get('Max Drawdown', 0):,.2f}")
-            st.metric("Portfolio Max DD %", f"{portfolio_metrics.get('Max Drawdown %', 0):.2f}%")
+            days = df['Period']
+            profits = df['Net profit']
+            
+            colors = ['#2ecc71' if x > 0 else '#e74c3c' for x in profits]
+            ax.bar(days, profits, color=colors, alpha=0.7, edgecolor='black')
+            
+            ax.set_title('Net Profit by Day of Week', fontsize=16, fontweight='bold', pad=20)
+            ax.set_xlabel('Day of Week', fontsize=12)
+            ax.set_ylabel('Net Profit ($)', fontsize=12)
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Show detailed table
+            st.subheader("Day of Week Statistics")
+            display_cols = [col for col in ['Period', '# ', 'Net profit', 'Gross profit', 'Gross loss', 
+                                            '% Win', 'Avg. trade'] if col in df.columns]
+            st.dataframe(df[display_cols], use_container_width=True, hide_index=True)
     
-    # ==================== TAB 5: EQUITY CURVES ====================
-    with tabs[4]:
-        st.header("Equity Curves Comparison")
+    elif format_type in ['period', 'trades']:
+        if 'Month_Year' in df.columns and 'Net profit' in df.columns:
+            st.subheader("Monthly Performance")
+            
+            monthly = df.groupby('Month_Year')['Net profit'].sum().sort_index()
+            
+            fig, ax = plt.subplots(figsize=(14, 6))
+            
+            colors = ['#2ecc71' if x > 0 else '#e74c3c' for x in monthly.values]
+            ax.bar(range(len(monthly)), monthly.values, color=colors, alpha=0.7, edgecolor='black')
+            
+            ax.set_title('Monthly Returns', fontsize=16, fontweight='bold', pad=20)
+            ax.set_xlabel('Month', fontsize=12)
+            ax.set_ylabel('Net Profit ($)', fontsize=12)
+            ax.set_xticks(range(len(monthly)))
+            ax.set_xticklabels(monthly.index, rotation=45, ha='right')
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Monthly stats
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Best Month", format_metric(monthly.max()))
+            with col2:
+                st.metric("Worst Month", format_metric(monthly.min()))
+            with col3:
+                winning_months = len(monthly[monthly > 0])
+                st.metric("Winning Months", f"{winning_months}/{len(monthly)}")
+            with col4:
+                st.metric("Avg Monthly", format_metric(monthly.mean()))
         
-        if combined_df is not None:
-            # Aggregate to monthly data
-            monthly_data = {}
+        # Year analysis if available
+        if 'Year' in df.columns and 'Net profit' in df.columns and df['Year'].nunique() > 1:
+            st.subheader("Yearly Performance")
             
-            for name, df in dataframes.items():
-                if 'Month_Year' in df.columns and 'Cum. net profit' in df.columns:
-                    monthly = df.groupby('Month_Year')['Cum. net profit'].last().sort_index()
-                    monthly_data[name] = monthly
+            yearly = df.groupby('Year')['Net profit'].sum()
             
-            if monthly_data:
-                monthly_combined = pd.DataFrame(monthly_data)
-                monthly_combined = monthly_combined.ffill().fillna(0)
-                monthly_combined['Portfolio'] = monthly_combined.sum(axis=1)
-                
-                # Add benchmark if selected
-                if show_benchmark and benchmark_ticker:
-                    try:
-                        with st.spinner(f"Fetching {benchmark_ticker} data..."):
-                            start_date = monthly_combined.index.min() + '-01'
-                            end_date = monthly_combined.index.max() + '-28'
+            fig, ax = plt.subplots(figsize=(10, 5))
+            
+            colors = ['#2ecc71' if x > 0 else '#e74c3c' for x in yearly.values]
+            ax.bar(yearly.index, yearly.values, color=colors, alpha=0.7, edgecolor='black', width=0.6)
+            
+            ax.set_title('Yearly Returns', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Year', fontsize=12)
+            ax.set_ylabel('Net Profit ($)', fontsize=12)
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+    
+    else:
+        st.info("Time analysis not available for this data format")
+
+# ==================== TAB 5: PORTFOLIO ====================
+with tabs[4]:
+    st.header("Portfolio Analysis")
+    
+    if len(dataframes) < 2:
+        st.info("Upload multiple strategies to see portfolio analysis")
+    else:
+        st.subheader("Position Sizing")
+        
+        # Allow user to set weights
+        st.markdown("Set position sizes for each strategy:")
+        
+        weights = {}
+        cols = st.columns(min(len(dataframes), 4))
+        
+        for idx, name in enumerate(dataframes.keys()):
+            with cols[idx % 4]:
+                weights[name] = st.number_input(
+                    f"{name}", 
+                    min_value=0.0, 
+                    max_value=10.0, 
+                    value=1.0, 
+                    step=0.1,
+                    key=f"weight_{name}"
+                )
+        
+        # Calculate portfolio metrics
+        portfolio_metrics, combined = calculate_portfolio_metrics(dataframes, weights)
+        
+        if portfolio_metrics and combined is not None:
+            # Display portfolio metrics
+            st.subheader("Portfolio Performance")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Net Profit", format_metric(portfolio_metrics.get('Net Profit', 0)))
+                st.metric("Sharpe Ratio", format_metric(portfolio_metrics.get('Sharpe Ratio', 0), 'ratio'))
+            
+            with col2:
+                st.metric("Max Drawdown", format_metric(portfolio_metrics.get('Max Drawdown', 0)))
+                st.metric("Recovery Factor", format_metric(portfolio_metrics.get('Recovery Factor', 0), 'ratio'))
+            
+            with col3:
+                st.metric("Peak Profit", format_metric(portfolio_metrics.get('Peak Profit', 0)))
+                st.metric("Avg Period", format_metric(portfolio_metrics.get('Avg Period Return', 0)))
+            
+            with col4:
+                st.metric("Std Dev", format_metric(portfolio_metrics.get('Std Dev', 0)))
+                st.metric("Period Win Rate", format_metric(portfolio_metrics.get('Period Win Rate', 0), 'percent'))
+            
+            # Portfolio equity curve
+            st.subheader("Portfolio Equity Curve")
+            
+            # Add benchmark comparison
+            add_benchmark = st.checkbox("Add Benchmark Comparison (SPY)", value=False)
+            
+            # Prepare monthly data
+            monthly_combined = combined.groupby('Month_Year').agg({
+                'Portfolio_Cum': 'last'
+            }).sort_index()
+            
+            # Add individual strategies
+            for name in dataframes.keys():
+                cum_col = f'{name}_Cum'
+                if cum_col in combined.columns:
+                    strategy_monthly = combined.groupby('Month_Year')[cum_col].last().sort_index()
+                    monthly_combined[name] = strategy_monthly
+            
+            # Fetch benchmark if requested
+            if add_benchmark and 'Month_Year' in monthly_combined.index.name or True:
+                try:
+                    benchmark_capital = st.number_input(
+                        "Benchmark Starting Capital ($)", 
+                        min_value=1000, 
+                        value=10000, 
+                        step=1000
+                    )
+                    
+                    # Get date range from portfolio
+                    if len(combined) > 0:
+                        start_date = combined['Period'].min()
+                        end_date = combined['Period'].max()
+                        
+                        market_data = yf.download('SPY', start=start_date, 
+                                                end=end_date, interval="1mo", progress=False)
+                        
+                        if not market_data.empty:
+                            market_data['Month_Year'] = market_data.index.strftime('%Y-%m')
+                            monthly_prices = market_data.groupby('Month_Year')['Close'].last()
                             
-                            market_data = yf.download(benchmark_ticker, start=start_date, 
-                                                    end=end_date, interval="1mo", progress=False)
-                            
-                            if not market_data.empty:
-                                market_data['Month_Year'] = market_data.index.strftime('%Y-%m')
-                                monthly_prices = market_data.groupby('Month_Year')['Close'].last()
-                                
-                                first_price = monthly_prices.iloc[0]
-                                buy_hold_returns = ((monthly_prices / first_price) - 1) * benchmark_capital
-                                monthly_combined['Buy & Hold'] = buy_hold_returns.reindex(monthly_combined.index).ffill().fillna(0)
-                    except Exception as e:
-                        st.warning(f"Could not fetch benchmark data: {e}")
-                
-                # Plot
-                fig, ax = plt.subplots(figsize=(14, 7))
-                
-                for col in monthly_combined.columns:
-                    if col == 'Portfolio':
-                        ax.plot(monthly_combined.index, monthly_combined[col], 
-                               label=col, linewidth=2.5, color='#2ecc71')
-                    elif col == 'Buy & Hold':
-                        ax.plot(monthly_combined.index, monthly_combined[col], 
-                               label=col, linewidth=2, linestyle='--', color='#e74c3c')
-                    else:
-                        ax.plot(monthly_combined.index, monthly_combined[col], 
-                               label=col, linewidth=1.5, alpha=0.7)
-                
-                ax.set_title('Monthly Cumulative Profit - Comparison', fontsize=16, fontweight='bold', pad=20)
-                ax.set_xlabel('Month-Year', fontsize=12)
-                ax.set_ylabel('Cumulative Profit ($)', fontsize=12)
-                ax.legend(loc='best', fontsize=10)
-                ax.grid(True, alpha=0.3, linestyle='--')
-                ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.3)
-                
-                # Format x-axis
-                x_ticks = range(0, len(monthly_combined.index), max(1, len(monthly_combined.index) // 12))
-                ax.set_xticks(x_ticks)
-                ax.set_xticklabels([monthly_combined.index[i] for i in x_ticks], rotation=45)
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-                
-                # Summary stats
-                st.subheader("Monthly Performance Summary")
-                final_values = monthly_combined.iloc[-1]
-                
-                cols = st.columns(len(monthly_combined.columns))
-                for i, col in enumerate(monthly_combined.columns):
-                    with cols[i]:
-                        st.metric(col, f"${final_values[col]:,.2f}")
+                            first_price = monthly_prices.iloc[0]
+                            buy_hold_returns = ((monthly_prices / first_price) - 1) * benchmark_capital
+                            monthly_combined['Buy & Hold'] = buy_hold_returns.reindex(monthly_combined.index).ffill().fillna(0)
+                except Exception as e:
+                    st.warning(f"Could not fetch benchmark data: {e}")
+            
+            # Plot
+            fig, ax = plt.subplots(figsize=(14, 7))
+            
+            for col in monthly_combined.columns:
+                if col == 'Portfolio':
+                    ax.plot(monthly_combined.index, monthly_combined[col], 
+                           label=col, linewidth=2.5, color='#2ecc71')
+                elif col == 'Buy & Hold':
+                    ax.plot(monthly_combined.index, monthly_combined[col], 
+                           label=col, linewidth=2, linestyle='--', color='#e74c3c')
+                else:
+                    ax.plot(monthly_combined.index, monthly_combined[col], 
+                           label=col, linewidth=1.5, alpha=0.7)
+            
+            ax.set_title('Monthly Cumulative Profit - Comparison', fontsize=16, fontweight='bold', pad=20)
+            ax.set_xlabel('Month-Year', fontsize=12)
+            ax.set_ylabel('Cumulative Profit ($)', fontsize=12)
+            ax.legend(loc='best', fontsize=10)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.3)
+            
+            # Format x-axis
+            x_ticks = range(0, len(monthly_combined.index), max(1, len(monthly_combined.index) // 12))
+            ax.set_xticks(x_ticks)
+            ax.set_xticklabels([monthly_combined.index[i] for i in x_ticks], rotation=45)
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+            
+            # Summary stats
+            st.subheader("Monthly Performance Summary")
+            final_values = monthly_combined.iloc[-1]
+            
+            cols = st.columns(len(monthly_combined.columns))
+            for i, col in enumerate(monthly_combined.columns):
+                with cols[i]:
+                    st.metric(col, format_metric(final_values[col]))
+
+# ==================== TAB 6: DRAWDOWN ANALYSIS ====================
+with tabs[5]:
+    st.header("Drawdown Analysis")
     
-    # ==================== TAB 6: DRAWDOWN ANALYSIS ====================
-    with tabs[5]:
-        st.header("Drawdown Analysis")
+    selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="dd_select")
+    df = dataframes[selected_strategy]
+    format_type = df.attrs.get('format_type', 'period')
+    
+    if format_type not in ['period', 'trades']:
+        st.info("Drawdown analysis requires time-series data (Daily, Weekly, Monthly, Yearly, or Trades format)")
+    elif 'Cum. net profit' in df.columns:
+        cumulative = df['Cum. net profit'].dropna()
         
-        selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="dd_select")
-        df = dataframes[selected_strategy]
-        
-        if 'Cum. net profit' in df.columns:
-            cumulative = df['Cum. net profit']
+        if len(cumulative) > 0:
             running_max = cumulative.cummax()
             drawdown = cumulative - running_max
-            drawdown_pct = (drawdown / running_max * 100).fillna(0)
+            drawdown_pct = (drawdown / running_max * 100).replace([np.inf, -np.inf], 0).fillna(0)
             
             # Plot
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
             
             # Equity curve with drawdown
-            ax1.plot(df.index, cumulative, label='Equity Curve', linewidth=2, color='#2ecc71')
-            ax1.fill_between(df.index, cumulative, running_max, 
+            ax1.plot(cumulative.index, cumulative.values, label='Equity Curve', linewidth=2, color='#2ecc71')
+            ax1.fill_between(cumulative.index, cumulative.values, running_max.values, 
                             alpha=0.3, color='#e74c3c', label='Drawdown')
-            ax1.plot(df.index, running_max, label='Peak Equity', 
+            ax1.plot(running_max.index, running_max.values, label='Peak Equity', 
                     linewidth=1, linestyle='--', color='#3498db', alpha=0.7)
             ax1.set_title(f'{selected_strategy} - Equity Curve with Drawdown', 
                          fontsize=14, fontweight='bold')
@@ -1006,8 +985,8 @@ else:
             ax1.grid(True, alpha=0.3)
             
             # Drawdown chart
-            ax2.fill_between(df.index, drawdown, 0, alpha=0.5, color='#e74c3c')
-            ax2.plot(df.index, drawdown, linewidth=1.5, color='#c0392b')
+            ax2.fill_between(drawdown.index, drawdown.values, 0, alpha=0.5, color='#e74c3c')
+            ax2.plot(drawdown.index, drawdown.values, linewidth=1.5, color='#c0392b')
             ax2.set_title('Drawdown Over Time', fontsize=14, fontweight='bold')
             ax2.set_xlabel('Period', fontsize=12)
             ax2.set_ylabel('Drawdown ($)', fontsize=12)
@@ -1023,11 +1002,12 @@ else:
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Max Drawdown", f"${drawdown.min():,.2f}")
+                st.metric("Max Drawdown", format_metric(drawdown.min()))
             with col2:
-                st.metric("Max DD %", f"{drawdown_pct.min():.2f}%")
+                max_dd_pct = drawdown_pct.min()
+                st.metric("Max DD %", format_metric(max_dd_pct if not np.isnan(max_dd_pct) else 0, 'percent'))
             with col3:
-                st.metric("Current Drawdown", f"${drawdown.iloc[-1]:,.2f}")
+                st.metric("Current Drawdown", format_metric(drawdown.iloc[-1]))
             with col4:
                 in_drawdown = drawdown < 0
                 current_dd_duration = 0
@@ -1037,24 +1017,28 @@ else:
                     else:
                         break
                 st.metric("Current DD Duration", f"{current_dd_duration} periods")
+    else:
+        st.info("No cumulative profit data available for drawdown analysis")
+
+# ==================== TAB 7: PERIOD ANALYSIS ====================
+with tabs[6]:
+    st.header("Period-by-Period Analysis")
     
-    # ==================== TAB 7: PERIOD ANALYSIS ====================
-    with tabs[6]:
-        st.header("Period-by-Period Analysis")
+    selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="period_select")
+    df = dataframes[selected_strategy]
+    format_type = df.attrs.get('format_type', 'period')
+    
+    # Period performance distribution
+    if 'Net profit' in df.columns:
+        returns = df['Net profit'].dropna()
         
-        selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="period_select")
-        df = dataframes[selected_strategy]
-        
-        # Period performance distribution
-        if 'Net profit' in df.columns:
+        if len(returns) > 0:
             st.subheader("Period Returns Distribution")
             
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
             
-            returns = df['Net profit']
-            
             # Histogram
-            ax1.hist(returns, bins=30, alpha=0.7, color='steelblue', edgecolor='black')
+            ax1.hist(returns, bins=min(30, max(10, len(returns)//3)), alpha=0.7, color='steelblue', edgecolor='black')
             ax1.axvline(returns.mean(), color='red', linestyle='--', 
                        linewidth=2, label=f'Mean: ${returns.mean():.2f}')
             ax1.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.5)
@@ -1079,41 +1063,33 @@ else:
             # Statistics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Mean Return", f"${returns.mean():.2f}")
+                st.metric("Mean Return", format_metric(returns.mean()))
             with col2:
-                st.metric("Median Return", f"${returns.median():.2f}")
+                st.metric("Median Return", format_metric(returns.median()))
             with col3:
-                st.metric("Std Dev", f"${returns.std():.2f}")
+                st.metric("Std Dev", format_metric(returns.std()))
             with col4:
                 profitable = len(returns[returns > 0])
                 st.metric("Profitable Periods", f"{profitable}/{len(returns)}")
-        
-        # Show data table
-        st.subheader("Period Data")
-        display_cols = ['Period', 'Cum. net profit', 'Net profit', '% Win', 'Avg. trade', 
-                       'Max. drawdown', 'Gross profit', 'Gross loss']
-        display_cols = [col for col in display_cols if col in df.columns]
-        
-        st.dataframe(df[display_cols].tail(20), use_container_width=True)
-        
-        # Export
-        if st.button("Download Full Period Data (CSV)"):
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="Click to Download",
-                data=csv,
-                file_name=f"{selected_strategy}_periods.csv",
-                mime="text/csv"
-            )
+    
+    # Show data table
+    st.subheader("Period Data")
+    display_cols = ['Period', 'Cum. net profit', 'Net profit', '% Win', 'Avg. trade', 
+                   'Max. drawdown', 'Gross profit', 'Gross loss']
+    display_cols = [col for col in display_cols if col in df.columns]
+    
+    st.dataframe(df[display_cols].tail(20), use_container_width=True)
+    
+    # Export
+    if st.button("Download Full Period Data (CSV)"):
+        csv = df.to_csv(index=False)
+        st.download_button(
+            label="Click to Download",
+            data=csv,
+            file_name=f"{selected_strategy}_periods.csv",
+            mime="text/csv"
+        )
 
 # Footer
 st.markdown("---")
-st.caption("Built for NinjaTrader traders | Powered by Streamlit")
-
-
-
-
-
-
-
-
+st.caption("Built for NinjaTrader traders | Powered by Streamlit | Supports all NinjaTrader export formats")
