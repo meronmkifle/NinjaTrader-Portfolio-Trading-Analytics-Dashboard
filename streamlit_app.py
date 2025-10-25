@@ -355,6 +355,15 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
+# Benchmark options
+st.sidebar.markdown("---")
+show_benchmark = st.sidebar.checkbox("Add Buy & Hold Benchmark", value=False)
+benchmark_ticker = None
+benchmark_capital = 100000
+if show_benchmark:
+    benchmark_ticker = st.sidebar.text_input("Ticker Symbol", value="ES=F", help="e.g., ES=F, NQ=F, SPY")
+    benchmark_capital = st.sidebar.number_input("Initial Capital ($)", value=100000, step=10000)
+
 # Process uploaded files
 dataframes = {}
 if uploaded_files:
@@ -455,140 +464,33 @@ with tabs[0]:
         if format_type in ['period', 'trades'] and 'Cum. net profit' in df.columns:
             st.subheader("Equity Curve")
             
-            # Add benchmark comparison option
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                add_benchmark = st.checkbox("Compare to Buy & Hold (SPY)", value=False, key="single_benchmark")
-            with col2:
-                if add_benchmark:
-                    benchmark_capital = st.number_input(
-                        "Starting Capital ($)", 
-                        min_value=1000, 
-                        value=10000, 
-                        step=1000,
-                        key="single_benchmark_capital"
-                    )
-            
             fig, ax = plt.subplots(figsize=(14, 6))
             
             cumulative = df['Cum. net profit'].dropna()
-            
-            # Plot strategy
             if format_type == 'trades':
                 x_values = range(len(cumulative))
-                ax.plot(x_values, cumulative, linewidth=2, color='#2ecc71', label=strategy_name)
+                ax.plot(x_values, cumulative, linewidth=2, color='#2ecc71')
                 ax.set_xlabel('Trade Number', fontsize=12)
-                x_axis_data = x_values
             else:
-                ax.plot(df.index, cumulative, linewidth=2, color='#2ecc71', label=strategy_name)
+                ax.plot(df.index, cumulative, linewidth=2, color='#2ecc71')
                 ax.set_xlabel('Period', fontsize=12)
-                x_axis_data = df.index
-            
-            # Add benchmark if requested
-            if add_benchmark and 'Period' in df.columns and format_type != 'trades':
-                try:
-                    start_date = df['Period'].min()
-                    end_date = df['Period'].max()
-                    
-                    market_data = yf.download('SPY', start=start_date, end=end_date, progress=False)
-                    
-                    if not market_data.empty:
-                        # Align benchmark with strategy periods
-                        benchmark_values = []
-                        first_price = None
-                        
-                        for period in df['Period']:
-                            # Find closest market price
-                            closest_date = market_data.index[market_data.index <= period]
-                            if len(closest_date) > 0:
-                                price = market_data.loc[closest_date[-1], 'Close']
-                                if first_price is None:
-                                    first_price = price
-                                benchmark_return = ((price / first_price) - 1) * benchmark_capital
-                                benchmark_values.append(benchmark_return)
-                            else:
-                                benchmark_values.append(0)
-                        
-                        ax.plot(x_axis_data, benchmark_values, linewidth=2, linestyle='--', 
-                               color='#e74c3c', label='Buy & Hold (SPY)', alpha=0.8)
-                        
-                        # Add benchmark stats to legend
-                        if len(benchmark_values) > 0:
-                            benchmark_final = benchmark_values[-1]
-                            stats_text = f"Strategy: {format_metric(metrics.get('Net Profit', 0))}\n"
-                            stats_text += f"Buy & Hold: {format_metric(benchmark_final)}\n"
-                            stats_text += f"Difference: {format_metric(metrics.get('Net Profit', 0) - benchmark_final)}"
-                        else:
-                            stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
-                            stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
-                            stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
-                    else:
-                        stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
-                        stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
-                        stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
-                except Exception as e:
-                    st.warning(f"Could not fetch benchmark data: {e}")
-                    stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
-                    stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
-                    stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
-            else:
-                # Regular stats box without benchmark
-                stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
-                stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
-                stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
             
             ax.set_title(f'{strategy_name} - Cumulative Profit', fontsize=16, fontweight='bold', pad=20)
             ax.set_ylabel('Cumulative Profit ($)', fontsize=12)
             ax.grid(True, alpha=0.3, linestyle='--')
             ax.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.5)
-            ax.legend(loc='best', fontsize=10)
             
             # Add stats box
+            stats_text = f"Net: {format_metric(metrics.get('Net Profit', 0))}\n"
+            stats_text += f"DD: {format_metric(metrics.get('Max Drawdown', 0))}\n"
+            stats_text += f"PF: {format_metric(metrics.get('Profit Factor', 0), 'ratio')}"
+            
             ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
                    verticalalignment='top', bbox=dict(boxstyle='round', 
                    facecolor='wheat', alpha=0.5), fontsize=10)
             
             plt.tight_layout()
             st.pyplot(fig)
-            
-            # Show comparison table if benchmark was added
-            if add_benchmark and 'Period' in df.columns and format_type != 'trades':
-                try:
-                    st.subheader("Strategy vs Buy & Hold Comparison")
-                    
-                    # Calculate buy & hold final return
-                    start_date = df['Period'].min()
-                    end_date = df['Period'].max()
-                    market_data = yf.download('SPY', start=start_date, end=end_date, progress=False)
-                    
-                    if not market_data.empty:
-                        first_price = market_data['Close'].iloc[0]
-                        last_price = market_data['Close'].iloc[-1]
-                        bh_return = ((last_price / first_price) - 1) * benchmark_capital
-                        
-                        comparison_data = {
-                            'Metric': ['Net Profit', 'Return %', 'Winner'],
-                            'Your Strategy': [
-                                format_metric(metrics.get('Net Profit', 0)),
-                                f"{(metrics.get('Net Profit', 0) / benchmark_capital * 100):.2f}%",
-                                '✓' if metrics.get('Net Profit', 0) > bh_return else ''
-                            ],
-                            'Buy & Hold': [
-                                format_metric(bh_return),
-                                f"{(bh_return / benchmark_capital * 100):.2f}%",
-                                '✓' if bh_return > metrics.get('Net Profit', 0) else ''
-                            ],
-                            'Difference': [
-                                format_metric(metrics.get('Net Profit', 0) - bh_return),
-                                f"{((metrics.get('Net Profit', 0) - bh_return) / benchmark_capital * 100):.2f}%",
-                                ''
-                            ]
-                        }
-                        
-                        comparison_df = pd.DataFrame(comparison_data)
-                        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-                except:
-                    pass
     
     else:
         # Multiple strategies comparison
@@ -977,9 +879,6 @@ with tabs[4]:
             # Portfolio equity curve
             st.subheader("Portfolio Equity Curve")
             
-            # Add benchmark comparison
-            add_benchmark = st.checkbox("Add Benchmark Comparison (SPY)", value=False)
-            
             # Prepare monthly data
             monthly_combined = combined.groupby('Month_Year').agg({
                 'Portfolio_Cum': 'last'
@@ -993,22 +892,13 @@ with tabs[4]:
                     monthly_combined[name] = strategy_monthly
             
             # Fetch benchmark if requested
-            if add_benchmark:
+            if show_benchmark and benchmark_ticker:
                 try:
-                    benchmark_capital = st.number_input(
-                        "Benchmark Starting Capital ($)", 
-                        min_value=1000, 
-                        value=10000, 
-                        step=1000,
-                        key="portfolio_benchmark_capital"
-                    )
-                    
-                    # Get date range from portfolio
-                    if len(combined) > 0:
-                        start_date = combined['Period'].min()
-                        end_date = combined['Period'].max()
+                    with st.spinner(f"Fetching {benchmark_ticker} data..."):
+                        start_date = monthly_combined.index.min() + '-01'
+                        end_date = monthly_combined.index.max() + '-28'
                         
-                        market_data = yf.download('SPY', start=start_date, 
+                        market_data = yf.download(benchmark_ticker, start=start_date, 
                                                 end=end_date, interval="1mo", progress=False)
                         
                         if not market_data.empty:
@@ -1058,40 +948,6 @@ with tabs[4]:
             for i, col in enumerate(monthly_combined.columns):
                 with cols[i]:
                     st.metric(col, format_metric(final_values[col]))
-            
-            # Show detailed comparison if Buy & Hold is included
-            if 'Buy & Hold' in monthly_combined.columns and 'Portfolio' in monthly_combined.columns:
-                st.subheader("Portfolio vs Buy & Hold Comparison")
-                
-                portfolio_return = final_values['Portfolio']
-                bh_return = final_values['Buy & Hold']
-                
-                comparison_data = {
-                    'Metric': ['Final Value', 'Total Return %', 'Outperformance', 'Winner'],
-                    'Portfolio': [
-                        format_metric(portfolio_return),
-                        f"{(portfolio_return / benchmark_capital * 100):.2f}%",
-                        format_metric(portfolio_return - bh_return),
-                        '✓' if portfolio_return > bh_return else ''
-                    ],
-                    'Buy & Hold (SPY)': [
-                        format_metric(bh_return),
-                        f"{(bh_return / benchmark_capital * 100):.2f}%",
-                        '-',
-                        '✓' if bh_return > portfolio_return else ''
-                    ]
-                }
-                
-                comparison_df = pd.DataFrame(comparison_data)
-                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-                
-                # Additional insight
-                if portfolio_return > bh_return:
-                    outperform_pct = ((portfolio_return - bh_return) / abs(bh_return) * 100) if bh_return != 0 else 0
-                    st.success(f"Your portfolio outperformed Buy & Hold by {format_metric(portfolio_return - bh_return)} ({outperform_pct:.1f}%)")
-                else:
-                    underperform_pct = ((bh_return - portfolio_return) / abs(bh_return) * 100) if bh_return != 0 else 0
-                    st.warning(f"Buy & Hold outperformed your portfolio by {format_metric(bh_return - portfolio_return)} ({underperform_pct:.1f}%)")
 
 
 # ==================== TAB 6: DRAWDOWN ANALYSIS ====================
