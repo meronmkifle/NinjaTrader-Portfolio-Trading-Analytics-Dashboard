@@ -425,6 +425,12 @@ def parse_ninjatrader_file(file):
         if '% Trade' in df.columns:
             df['% Trade'] = clean_currency_column(df['% Trade'])
         
+        # 🔧 FIX: Sort by Period chronologically for correct equity curve
+        if format_type in ['period', 'trades'] and 'Period' in df.columns:
+            df = df.sort_values('Period').reset_index(drop=True)
+        elif format_type == 'day_of_week' and 'Day_Order' in df.columns:
+            df = df.sort_values('Day_Order').reset_index(drop=True)
+        
         df.attrs['format_type'] = format_type
         
         return df
@@ -761,17 +767,23 @@ with tabs[0]:
             setup_plot_style(fig, ax)
             
             cumulative = df['Cum. net profit'].dropna()
+            # 🔧 FIX: Use sequential index for plotting to ensure proper order
+            x_values = range(len(cumulative))
+            
+            ax.plot(x_values, cumulative.values, linewidth=3, color=COLORS['yellow'], 
+                   label='Cumulative Profit', zorder=3)
+            ax.fill_between(x_values, 0, cumulative.values, alpha=0.2, color=COLORS['yellow'])
+            
             if format_type == 'trades':
-                x_values = range(len(cumulative))
-                ax.plot(x_values, cumulative, linewidth=3, color=COLORS['yellow'], 
-                       label='Cumulative Profit', zorder=3)
-                ax.fill_between(x_values, 0, cumulative, alpha=0.2, color=COLORS['yellow'])
                 ax.set_xlabel('Trade Number', fontsize=14, fontweight='bold')
             else:
-                ax.plot(df.index, cumulative, linewidth=3, color=COLORS['yellow'], 
-                       label='Cumulative Profit', zorder=3)
-                ax.fill_between(df.index, 0, cumulative, alpha=0.2, color=COLORS['yellow'])
                 ax.set_xlabel('Period', fontsize=14, fontweight='bold')
+                # Add period labels on x-axis
+                if 'Period' in df.columns:
+                    n_ticks = min(10, len(df))
+                    tick_indices = np.linspace(0, len(df)-1, n_ticks, dtype=int)
+                    ax.set_xticks(tick_indices)
+                    ax.set_xticklabels([df.iloc[i]['Period'].strftime('%Y-%m-%d') if hasattr(df.iloc[i]['Period'], 'strftime') else str(df.iloc[i]['Period']) for i in tick_indices], rotation=45, ha='right')
             
             ax.set_title(f'{strategy_name.upper()} - CUMULATIVE PROFIT', 
                         fontsize=18, fontweight='bold', pad=20, family='Rajdhani')
@@ -780,7 +792,7 @@ with tabs[0]:
             ax.legend(loc='upper left', fontsize=12, framealpha=0.9)
             
             # Add glow effect
-            ax.plot(df.index if format_type != 'trades' else x_values, cumulative, 
+            ax.plot(x_values, cumulative.values, 
                    linewidth=6, color=COLORS['yellow'], alpha=0.2, zorder=2)
             
             plt.tight_layout()
@@ -1294,13 +1306,14 @@ with tabs[5]:
             
             # Equity with drawdown
             setup_plot_style(fig, ax1)
-            ax1.plot(cumulative.index, cumulative.values, label='Equity', linewidth=3, 
+            x_values = range(len(cumulative))
+            ax1.plot(x_values, cumulative.values, label='Equity', linewidth=3, 
                     color=COLORS['yellow'], zorder=3)
-            ax1.plot(cumulative.index, cumulative.values, linewidth=6, 
+            ax1.plot(x_values, cumulative.values, linewidth=6, 
                     color=COLORS['yellow'], alpha=0.2, zorder=2)
-            ax1.fill_between(cumulative.index, cumulative.values, running_max.values, 
+            ax1.fill_between(x_values, cumulative.values, running_max.values, 
                             alpha=0.4, color=COLORS['red'], label='Drawdown', zorder=1)
-            ax1.plot(running_max.index, running_max.values, label='Peak Equity', 
+            ax1.plot(x_values, running_max.values, label='Peak Equity', 
                     linewidth=2, linestyle='--', color=COLORS['green'], alpha=0.8)
             ax1.set_title(f'{selected_strategy.upper()} - EQUITY WITH DRAWDOWN', 
                          fontsize=16, fontweight='bold', family='Rajdhani', pad=15)
@@ -1309,8 +1322,8 @@ with tabs[5]:
             
             # Drawdown chart
             setup_plot_style(fig, ax2)
-            ax2.fill_between(drawdown.index, drawdown.values, 0, alpha=0.6, color=COLORS['red'])
-            ax2.plot(drawdown.index, drawdown.values, linewidth=2.5, color=COLORS['red_glow'])
+            ax2.fill_between(x_values, drawdown.values, 0, alpha=0.6, color=COLORS['red'])
+            ax2.plot(x_values, drawdown.values, linewidth=2.5, color=COLORS['red_glow'])
             ax2.set_title('DRAWDOWN OVER TIME', fontsize=16, fontweight='bold', 
                          family='Rajdhani', pad=15)
             ax2.set_xlabel('Period', fontsize=12, fontweight='bold')
@@ -1434,4 +1447,3 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
-
