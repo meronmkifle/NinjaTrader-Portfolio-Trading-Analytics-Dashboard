@@ -674,7 +674,7 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 BENCHMARK")
+st.sidebar.markdown("### BENCHMARK")
 show_benchmark = st.sidebar.checkbox("Add Buy & Hold Comparison", value=False)
 benchmark_ticker = None
 benchmark_capital = 100000
@@ -686,7 +686,7 @@ if show_benchmark:
 dataframes = {}
 if uploaded_files:
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### ✅ LOADED STRATEGIES")
+    st.sidebar.markdown("### LOADED STRATEGIES")
     for file in uploaded_files:
         df = parse_ninjatrader_file(file)
         if df is not None:
@@ -718,7 +718,7 @@ if not dataframes:
     st.stop()
 
 # Create tabs
-tabs = st.tabs(["🎯 OVERVIEW", "📈 PERFORMANCE", "⚠️ RISK", "⏰ TIME", "💼 PORTFOLIO", "📉 DRAWDOWN", "📊 PERIODS"])
+tabs = st.tabs(["OVERVIEW", "PERFORMANCE", "RISK", "TIME", "PORTFOLIO", "DRAWDOWN", "PERIODS"])
 
 # ==================== TAB 1: OVERVIEW ====================
 with tabs[0]:
@@ -792,14 +792,14 @@ with tabs[0]:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown(f"**💰 PROFIT METRICS**")
+            st.markdown(f"**PROFIT METRICS**")
             st.write(f"Gross Profit: {format_metric(metrics.get('Gross Profit', 0))}")
             st.write(f"Gross Loss: {format_metric(metrics.get('Gross Loss', 0))}")
             st.write(f"Commission: {format_metric(metrics.get('Total Commission', 0))}")
             st.write(f"Peak Profit: {format_metric(metrics.get('Peak Profit', 0))}")
         
         with col2:
-            st.markdown(f"**📊 TRADE METRICS**")
+            st.markdown(f"**TRADE METRICS**")
             st.write(f"Avg Winner: {format_metric(metrics.get('Avg Winner', 0))}")
             st.write(f"Avg Loser: {format_metric(metrics.get('Avg Loser', 0))}")
             st.write(f"Largest Winner: {format_metric(metrics.get('Largest Winner', 0))}")
@@ -982,19 +982,19 @@ with tabs[2]:
     cols = st.columns(3)
     
     with cols[0]:
-        st.markdown("### ⚠️ DOWNSIDE RISK")
+        st.markdown("### DOWNSIDE RISK")
         create_metric_card("Max Drawdown", metrics.get('Max Drawdown', 0), 'currency')
         create_metric_card("Largest Loss", metrics.get('Largest Loser', 0), 'currency')
         create_metric_card("Avg Loss", metrics.get('Avg Loser', 0), 'currency')
     
     with cols[1]:
-        st.markdown("### 📊 RISK-ADJUSTED")
+        st.markdown("### RISK-ADJUSTED")
         create_metric_card("Sharpe Ratio", metrics.get('Sharpe Ratio', 0), 'ratio')
         create_metric_card("Sortino Ratio", metrics.get('Sortino Ratio', 0), 'ratio')
         create_metric_card("Recovery Factor", metrics.get('Recovery Factor', 0), 'ratio')
     
     with cols[2]:
-        st.markdown("### ⚡ EFFICIENCY")
+        st.markdown("### EFFICIENCY")
         create_metric_card("Profit Factor", metrics.get('Profit Factor', 0), 'ratio')
         create_metric_card("Win Rate", metrics.get('Win Rate', 0), 'percent')
         create_metric_card("Avg MAE", metrics.get('Avg MAE', 0), 'currency')
@@ -1138,7 +1138,7 @@ with tabs[4]:
     if len(dataframes) < 2:
         st.info("💡 Upload multiple strategies to enable portfolio analysis")
     else:
-        st.markdown("### 💼 POSITION SIZING")
+        st.markdown("### POSITION SIZING")
         
         # Capital allocation
         total_capital = st.number_input("Total Portfolio Capital ($)", 
@@ -1434,3 +1434,4 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
+
