@@ -818,7 +818,7 @@ with tabs[0]:
             st.write(f"Largest Loser: {format_metric(metrics.get('Largest Loser', 0))}")
         
         with col3:
-            st.markdown(f"**⚡ PERFORMANCE**")
+            st.markdown(f"**PERFORMANCE**")
             st.write(f"Sortino Ratio: {format_metric(metrics.get('Sortino Ratio', 0), 'ratio')}")
             st.write(f"Period Win Rate: {format_metric(metrics.get('Period Win Rate', 0), 'percent')}")
             st.write(f"Profitable Periods: {metrics.get('Profitable Periods', 0)}")
@@ -1447,4 +1447,5 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
+
 
