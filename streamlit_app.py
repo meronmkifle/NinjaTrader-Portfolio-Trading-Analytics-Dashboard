@@ -11,7 +11,7 @@ import matplotlib.patches as mpatches
 # Page config with custom theme
 st.set_page_config(
     page_title="NinjaTrader Analytics Terminal",
-    page_icon="📊", 
+    page_icon="", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -1447,3 +1447,4 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
+
