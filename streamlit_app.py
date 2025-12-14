@@ -11,7 +11,7 @@ import matplotlib.patches as mpatches
 # Page config with custom theme
 st.set_page_config(
     page_title="NinjaTrader Analytics Terminal",
-    page_icon="", 
+    page_icon="⚡", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -425,7 +425,7 @@ def parse_ninjatrader_file(file):
         if '% Trade' in df.columns:
             df['% Trade'] = clean_currency_column(df['% Trade'])
         
-        # 🔧 FIX: Sort by Period chronologically for correct equity curve
+        # Sort by Period chronologically for correct equity curve
         if format_type in ['period', 'trades'] and 'Period' in df.columns:
             df = df.sort_values('Period').reset_index(drop=True)
         elif format_type == 'day_of_week' and 'Day_Order' in df.columns:
@@ -515,15 +515,222 @@ def calculate_summary_metrics(df):
     
     return metrics
 
+def calculate_monthly_returns(dataframes, weights=None, initial_capital=100000):
+    """
+    Calculate monthly returns for single strategy or portfolio.
+    Returns a DataFrame with Year, Month, and Return% columns.
+    """
+    valid_dfs = {name: df for name, df in dataframes.items() 
+                 if df.attrs.get('format_type', 'period') in ['period', 'trades']}
+    
+    if not valid_dfs:
+        return None
+    
+    # Initialize weights
+    if weights is None:
+        weights = {name: 1.0 for name in valid_dfs.keys()}
+    
+    # Normalize weights
+    total_weight = sum(weights.values())
+    weights = {k: v/total_weight for k, v in weights.items()}
+    
+    # Calculate capital allocation
+    capital_allocation = {name: initial_capital * weight for name, weight in weights.items()}
+    
+    # Build monthly data
+    monthly_data = {}
+    
+    for name, df in valid_dfs.items():
+        if 'Period' in df.columns and 'Net profit' in df.columns:
+            df_copy = df.copy()
+            df_copy['Year'] = pd.to_datetime(df_copy['Period']).dt.year
+            df_copy['Month'] = pd.to_datetime(df_copy['Period']).dt.month
+            
+            # Group by year and month
+            monthly_grouped = df_copy.groupby(['Year', 'Month'])['Net profit'].sum()
+            
+            for (year, month), net_profit in monthly_grouped.items():
+                key = (year, month)
+                if key not in monthly_data:
+                    monthly_data[key] = 0
+                
+                # Add weighted return
+                monthly_data[key] += net_profit * weights[name]
+    
+    # Convert to DataFrame
+    monthly_df = pd.DataFrame([
+        {
+            'Year': year,
+            'Month': month,
+            'Net_Return': ret
+        }
+        for (year, month), ret in monthly_data.items()
+    ])
+    
+    # Calculate return percentage based on initial capital
+    monthly_df['Return_%'] = (monthly_df['Net_Return'] / initial_capital) * 100
+    
+    # Sort by year and month
+    monthly_df = monthly_df.sort_values(['Year', 'Month'])
+    
+    return monthly_df
+
+def create_monthly_performance_chart(monthly_df):
+    """
+    Create a monthly performance chart matching the image style.
+    """
+    if monthly_df is None or len(monthly_df) == 0:
+        return None
+    
+    # Create figure
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.3)
+    
+    # Top: Bar chart showing current year monthly returns
+    ax_bars = fig.add_subplot(gs[0])
+    setup_plot_style(fig, ax_bars)
+    
+    # Get latest year data
+    latest_year = monthly_df['Year'].max()
+    year_data = monthly_df[monthly_df['Year'] == latest_year].copy()
+    
+    # Ensure all 12 months are present
+    all_months = pd.DataFrame({'Month': range(1, 13)})
+    year_data = all_months.merge(year_data, on='Month', how='left')
+    year_data['Return_%'].fillna(0, inplace=True)
+    
+    # Month labels
+    month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    # Create bars
+    colors = [COLORS['green'] if x > 0 else COLORS['red'] if x < 0 else COLORS['gray'] 
+              for x in year_data['Return_%']]
+    
+    bars = ax_bars.bar(range(12), year_data['Return_%'], color=colors, alpha=0.8, 
+                       edgecolor=COLORS['yellow'], linewidth=1.5, width=0.7)
+    
+    # Add glow effect
+    for i, bar in enumerate(bars):
+        if year_data['Return_%'].iloc[i] != 0:
+            ax_bars.bar(i, bar.get_height(), bar.get_width(), 
+                       color=bar.get_facecolor(), alpha=0.3, edgecolor='none')
+    
+    # Formatting
+    ax_bars.set_xticks(range(12))
+    ax_bars.set_xticklabels(month_labels, fontsize=11, fontweight='600')
+    ax_bars.set_title(f'PERFORMANCE - {latest_year}', fontsize=16, fontweight='bold', 
+                     family='Rajdhani', pad=20)
+    ax_bars.set_ylabel('Return (%)', fontsize=12, fontweight='bold')
+    ax_bars.axhline(y=0, color=COLORS['gray'], linestyle='-', linewidth=1.5, alpha=0.7)
+    
+    # Add percentage labels on bars
+    for i, v in enumerate(year_data['Return_%']):
+        if v != 0:
+            label_y = v + (1 if v > 0 else -1)
+            ax_bars.text(i, label_y, f'{v:.2f}%', ha='center', va='bottom' if v > 0 else 'top',
+                        color=COLORS['yellow'], fontsize=9, fontweight='bold')
+    
+    # Calculate YTD return (shown in top right)
+    ytd_return = year_data['Return_%'].sum()
+    ax_bars.text(0.98, 0.95, f'{ytd_return:.2f}%', transform=ax_bars.transAxes,
+                ha='right', va='top', fontsize=14, fontweight='bold',
+                color=COLORS['green'] if ytd_return > 0 else COLORS['red'],
+                bbox=dict(boxstyle='round', facecolor=COLORS['navy'], 
+                         edgecolor=COLORS['yellow'], linewidth=2, alpha=0.9))
+    
+    # Bottom: Heatmap table
+    ax_table = fig.add_subplot(gs[1])
+    ax_table.axis('off')
+    
+    # Prepare data for table
+    pivot_data = monthly_df.pivot(index='Year', columns='Month', values='Return_%')
+    pivot_data = pivot_data.reindex(columns=range(1, 13))
+    pivot_data.fillna(0, inplace=True)
+    
+    # Sort years in descending order
+    pivot_data = pivot_data.sort_index(ascending=False)
+    
+    # Create table
+    cell_height = 0.08
+    cell_width = 1.0 / 13
+    
+    for i, year in enumerate(pivot_data.index):
+        # Year label
+        ax_table.text(0.02, 0.9 - i * cell_height, str(int(year)), 
+                     ha='left', va='center', fontsize=12, fontweight='bold',
+                     color=COLORS['yellow'], family='Rajdhani')
+        
+        for j, month in enumerate(range(1, 13)):
+            value = pivot_data.loc[year, month]
+            
+            # Determine cell color
+            if value > 0:
+                cell_color = COLORS['green']
+                text_alpha = min(1.0, abs(value) / 10 + 0.3)
+            elif value < 0:
+                cell_color = COLORS['red']
+                text_alpha = min(1.0, abs(value) / 10 + 0.3)
+            else:
+                cell_color = COLORS['gray_dark']
+                text_alpha = 0.3
+            
+            # Draw cell background
+            rect = mpatches.Rectangle((0.15 + j * cell_width, 0.85 - i * cell_height), 
+                                     cell_width * 0.95, cell_height * 0.9,
+                                     facecolor=cell_color, alpha=text_alpha * 0.3,
+                                     edgecolor=COLORS['gray_dark'], linewidth=0.5)
+            ax_table.add_patch(rect)
+            
+            # Add text
+            if value != 0:
+                ax_table.text(0.15 + j * cell_width + cell_width * 0.475, 
+                            0.85 - i * cell_height + cell_height * 0.45,
+                            f'{value:.2f}%', ha='center', va='center',
+                            fontsize=9, fontweight='600',
+                            color=cell_color if value != 0 else COLORS['gray'],
+                            family='Rajdhani')
+    
+    # Add month headers
+    for j, month_name in enumerate(month_labels):
+        ax_table.text(0.15 + j * cell_width + cell_width * 0.475, 0.95,
+                     month_name, ha='center', va='center',
+                     fontsize=10, fontweight='bold',
+                     color=COLORS['gray_light'], family='Rajdhani')
+    
+    # Add annual totals column
+    ax_table.text(0.15 + 12 * cell_width + cell_width * 0.475, 0.95,
+                 'Year', ha='center', va='center',
+                 fontsize=10, fontweight='bold',
+                 color=COLORS['gray_light'], family='Rajdhani')
+    
+    for i, year in enumerate(pivot_data.index):
+        annual_return = pivot_data.loc[year].sum()
+        color = COLORS['green'] if annual_return > 0 else COLORS['red'] if annual_return < 0 else COLORS['gray']
+        
+        rect = mpatches.Rectangle((0.15 + 12 * cell_width, 0.85 - i * cell_height), 
+                                 cell_width * 0.95, cell_height * 0.9,
+                                 facecolor=color, alpha=0.2,
+                                 edgecolor=COLORS['yellow'], linewidth=1)
+        ax_table.add_patch(rect)
+        
+        ax_table.text(0.15 + 12 * cell_width + cell_width * 0.475,
+                     0.85 - i * cell_height + cell_height * 0.45,
+                     f'{annual_return:.2f}%', ha='center', va='center',
+                     fontsize=10, fontweight='bold',
+                     color=color, family='Rajdhani')
+    
+    ax_table.set_xlim(0, 1)
+    ax_table.set_ylim(0, 1)
+    
+    fig.patch.set_facecolor(COLORS['navy_light'])
+    plt.tight_layout()
+    
+    return fig
+
 def calculate_portfolio_metrics(dataframes, weights=None, initial_capital=100000):
     """
     Calculate combined portfolio metrics with proper capital allocation.
-    
-    FIXED: Now properly tracks portfolio equity by:
-    1. Allocating capital proportionally to each strategy based on weights
-    2. Calculating returns as percentage of allocated capital
-    3. Summing the dollar returns from each strategy
-    4. Building cumulative equity curve from returns
     """
     if not dataframes:
         return {}, None
@@ -566,7 +773,6 @@ def calculate_portfolio_metrics(dataframes, weights=None, initial_capital=100000
                 period_df = df[df['Period'] == period]
                 if not period_df.empty:
                     strategy_return = period_df['Net profit'].iloc[0]
-                    # Scale return by allocated capital proportion
                     weighted_return = strategy_return * weights[name]
                     period_return += weighted_return
         
@@ -583,11 +789,10 @@ def calculate_portfolio_metrics(dataframes, weights=None, initial_capital=100000
     combined['Portfolio_Cum'] = initial_capital + combined['Net_Return'].cumsum()
     combined['Portfolio_Net'] = combined['Net_Return']
     
-    # Also add individual strategy curves for comparison (scaled by weight)
+    # Also add individual strategy curves for comparison
     for name, df in valid_dfs.items():
         if 'Period' in df.columns and 'Cum. net profit' in df.columns:
             strategy_cum = df.set_index('Period')['Cum. net profit']
-            # Scale by weight for fair comparison
             combined[f'{name}_Cum'] = combined['Period'].map(
                 lambda p: strategy_cum.get(p, np.nan) * weights[name]
             ).ffill().fillna(0) + capital_allocation[name]
@@ -717,14 +922,15 @@ if not dataframes:
                 • Multi-strategy portfolio analysis<br>
                 • Advanced risk metrics<br>
                 • Professional visualizations<br>
-                • Benchmark comparisons
+                • Benchmark comparisons<br>
+                • Monthly performance heatmaps
             </p>
         </div>
     """, unsafe_allow_html=True)
     st.stop()
 
 # Create tabs
-tabs = st.tabs(["OVERVIEW", "PERFORMANCE", "RISK", "TIME", "PORTFOLIO", "DRAWDOWN", "PERIODS"])
+tabs = st.tabs(["OVERVIEW", "MONTHLY", "PERFORMANCE", "RISK", "TIME", "PORTFOLIO", "DRAWDOWN", "PERIODS"])
 
 # ==================== TAB 1: OVERVIEW ====================
 with tabs[0]:
@@ -767,7 +973,6 @@ with tabs[0]:
             setup_plot_style(fig, ax)
             
             cumulative = df['Cum. net profit'].dropna()
-            # 🔧 FIX: Use sequential index for plotting to ensure proper order
             x_values = range(len(cumulative))
             
             ax.plot(x_values, cumulative.values, linewidth=3, color=COLORS['yellow'], 
@@ -778,7 +983,6 @@ with tabs[0]:
                 ax.set_xlabel('Trade Number', fontsize=14, fontweight='bold')
             else:
                 ax.set_xlabel('Period', fontsize=14, fontweight='bold')
-                # Add period labels on x-axis
                 if 'Period' in df.columns:
                     n_ticks = min(10, len(df))
                     tick_indices = np.linspace(0, len(df)-1, n_ticks, dtype=int)
@@ -791,7 +995,6 @@ with tabs[0]:
             ax.axhline(y=0, color=COLORS['gray'], linestyle='-', linewidth=1, alpha=0.5, zorder=1)
             ax.legend(loc='upper left', fontsize=12, framealpha=0.9)
             
-            # Add glow effect
             ax.plot(x_values, cumulative.values, 
                    linewidth=6, color=COLORS['yellow'], alpha=0.2, zorder=2)
             
@@ -853,7 +1056,6 @@ with tabs[0]:
             colors = [COLORS['green'] if v > 0 else COLORS['red'] for v in values]
             bars = ax.bar(strategies, values, color=colors, alpha=0.8, edgecolor=COLORS['yellow'], linewidth=2)
             
-            # Add glow effect to bars
             for bar in bars:
                 bar_color = bar.get_facecolor()
                 ax.bar(bar.get_x(), bar.get_height(), bar.get_width(), 
@@ -893,8 +1095,80 @@ with tabs[0]:
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-# ==================== TAB 2: PERFORMANCE ====================
+# ==================== TAB 2: MONTHLY PERFORMANCE ====================
 with tabs[1]:
+    st.markdown('<p class="sub-header">Monthly Performance Analysis</p>', unsafe_allow_html=True)
+    
+    # Configuration
+    if len(dataframes) == 1:
+        st.info("📊 Showing monthly returns for single strategy")
+        initial_capital = st.number_input("Starting Capital ($)", value=100000, step=10000, min_value=1000)
+        weights = None
+    else:
+        st.markdown("### PORTFOLIO CONFIGURATION")
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            initial_capital = st.number_input("Total Capital ($)", value=100000, step=10000, min_value=1000)
+        
+        with col2:
+            st.markdown("**Strategy Weights:**")
+            weights = {}
+            weight_cols = st.columns(min(len(dataframes), 4))
+            
+            for idx, name in enumerate(dataframes.keys()):
+                with weight_cols[idx % 4]:
+                    weights[name] = st.slider(
+                        f"{name}", 
+                        min_value=0.0, 
+                        max_value=2.0, 
+                        value=1.0, 
+                        step=0.1,
+                        key=f"monthly_weight_{name}"
+                    )
+    
+    # Calculate monthly returns
+    monthly_df = calculate_monthly_returns(dataframes, weights, initial_capital)
+    
+    if monthly_df is not None and len(monthly_df) > 0:
+        # Create and display the chart
+        fig = create_monthly_performance_chart(monthly_df)
+        
+        if fig:
+            st.pyplot(fig)
+        
+        # Summary statistics
+        st.markdown('<p class="sub-header">Monthly Statistics</p>', unsafe_allow_html=True)
+        
+        cols = st.columns(5)
+        with cols[0]:
+            create_metric_card("Best Month", monthly_df['Return_%'].max(), 'percent')
+        with cols[1]:
+            create_metric_card("Worst Month", monthly_df['Return_%'].min(), 'percent')
+        with cols[2]:
+            create_metric_card("Avg Month", monthly_df['Return_%'].mean(), 'percent')
+        with cols[3]:
+            winning_months = len(monthly_df[monthly_df['Return_%'] > 0])
+            create_metric_card("Winning Months", f"{winning_months}/{len(monthly_df)}", 'other')
+        with cols[4]:
+            win_rate = (winning_months / len(monthly_df) * 100) if len(monthly_df) > 0 else 0
+            create_metric_card("Monthly Win Rate", win_rate, 'percent')
+        
+        # Show raw data table
+        with st.expander("📋 View Monthly Data Table"):
+            display_df = monthly_df.copy()
+            display_df['Month_Name'] = pd.to_datetime(display_df['Month'].astype(str), format='%m').dt.strftime('%B')
+            display_df = display_df[['Year', 'Month_Name', 'Return_%', 'Net_Return']]
+            display_df.columns = ['Year', 'Month', 'Return %', 'Net Return $']
+            display_df['Return %'] = display_df['Return %'].apply(lambda x: f"{x:.2f}%")
+            display_df['Net Return $'] = display_df['Net Return $'].apply(lambda x: f"${x:,.2f}")
+            
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.warning("⚠️ No monthly data available. Monthly analysis requires time-series data (Daily, Weekly, Monthly, or Yearly formats).")
+
+# ==================== TAB 3: PERFORMANCE ====================
+with tabs[2]:
     st.markdown('<p class="sub-header">Performance Analysis</p>', unsafe_allow_html=True)
     
     selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="perf_select")
@@ -925,7 +1199,6 @@ with tabs[1]:
                              edgecolor=COLORS['yellow'], linewidth=1.5)
                 ax1.set_xlabel('Period', fontsize=12, fontweight='bold')
             
-            # Add glow to bars
             for i, bar in enumerate(bars):
                 ax1.bar(bar.get_x(), bar.get_height(), bar.get_width(), 
                        color=bar.get_facecolor(), alpha=0.3, edgecolor='none')
@@ -959,7 +1232,6 @@ with tabs[1]:
                        colors=colors_pie, startangle=90, textprops={'color': COLORS['white'], 
                        'fontsize': 12, 'fontweight': 'bold'})
                 
-                # Add glow effect
                 for wedge in wedges:
                     wedge.set_edgecolor(COLORS['yellow'])
                     wedge.set_linewidth(2)
@@ -981,8 +1253,8 @@ with tabs[1]:
             with cols[3]:
                 create_metric_card("Worst Period", net_profit.min(), 'currency')
 
-# ==================== TAB 3: RISK ====================
-with tabs[2]:
+# ==================== TAB 4: RISK ====================
+with tabs[3]:
     st.markdown('<p class="sub-header">Risk Analysis</p>', unsafe_allow_html=True)
     
     selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="risk_select")
@@ -1025,7 +1297,6 @@ with tabs[2]:
             n, bins, patches = ax1.hist(returns, bins=min(30, len(returns)//2), alpha=0.7, 
                                        color=COLORS['blue'], edgecolor=COLORS['yellow'], linewidth=1.5)
             
-            # Color bars by value
             for i, patch in enumerate(patches):
                 if bins[i] < 0:
                     patch.set_facecolor(COLORS['red'])
@@ -1072,8 +1343,8 @@ with tabs[2]:
                 downside = returns[returns < 0]
                 create_metric_card("Downside Dev", downside.std() if len(downside) > 0 else 0, 'currency')
 
-# ==================== TAB 4: TIME ====================
-with tabs[3]:
+# ==================== TAB 5: TIME ====================
+with tabs[4]:
     st.markdown('<p class="sub-header">Time-Based Analysis</p>', unsafe_allow_html=True)
     
     selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="time_select")
@@ -1091,7 +1362,6 @@ with tabs[3]:
             colors = [COLORS['green'] if x > 0 else COLORS['red'] for x in profits]
             bars = ax.bar(days, profits, color=colors, alpha=0.8, edgecolor=COLORS['yellow'], linewidth=2)
             
-            # Add glow
             for bar in bars:
                 ax.bar(bar.get_x(), bar.get_height(), bar.get_width(), 
                       color=bar.get_facecolor(), alpha=0.3, edgecolor='none')
@@ -1116,7 +1386,6 @@ with tabs[3]:
             bars = ax.bar(range(len(monthly)), monthly.values, color=colors, alpha=0.8, 
                          edgecolor=COLORS['yellow'], linewidth=1.5)
             
-            # Add glow
             for bar in bars:
                 ax.bar(bar.get_x(), bar.get_height(), bar.get_width(), 
                       color=bar.get_facecolor(), alpha=0.3, edgecolor='none')
@@ -1143,8 +1412,8 @@ with tabs[3]:
             with cols[3]:
                 create_metric_card("Avg Monthly", monthly.mean(), 'currency')
 
-# ==================== TAB 5: PORTFOLIO ====================
-with tabs[4]:
+# ==================== TAB 6: PORTFOLIO ====================
+with tabs[5]:
     st.markdown('<p class="sub-header">Portfolio Analysis</p>', unsafe_allow_html=True)
     
     if len(dataframes) < 2:
@@ -1211,12 +1480,10 @@ with tabs[4]:
             # Portfolio equity curve
             st.markdown('<p class="sub-header">Portfolio Equity Curve</p>', unsafe_allow_html=True)
             
-            # Aggregate by month for cleaner visualization
             monthly_combined = combined.groupby('Month_Year').agg({
                 'Portfolio_Cum': 'last'
             }).sort_index()
             
-            # Add individual strategies
             for name in dataframes.keys():
                 cum_col = f'{name}_Cum'
                 if cum_col in combined.columns:
@@ -1248,21 +1515,17 @@ with tabs[4]:
             fig, ax = plt.subplots(figsize=(16, 8))
             setup_plot_style(fig, ax)
             
-            # Plot portfolio with emphasis
             portfolio_line = ax.plot(monthly_combined.index, monthly_combined['Portfolio_Cum'], 
                    label='Portfolio', linewidth=4, color=COLORS['yellow'], zorder=10)
-            # Add glow to portfolio line
             ax.plot(monthly_combined.index, monthly_combined['Portfolio_Cum'], 
                    linewidth=8, color=COLORS['yellow'], alpha=0.2, zorder=9)
             
-            # Plot individual strategies
             strategy_colors = [COLORS['blue'], COLORS['green'], COLORS['red'], COLORS['gray']]
             for idx, col in enumerate([c for c in monthly_combined.columns if c not in ['Portfolio_Cum', 'Buy & Hold']]):
                 color = strategy_colors[idx % len(strategy_colors)]
                 ax.plot(monthly_combined.index, monthly_combined[col], 
                        label=col, linewidth=2, alpha=0.7, color=color, linestyle='--')
             
-            # Plot benchmark if available
             if 'Buy & Hold' in monthly_combined.columns:
                 ax.plot(monthly_combined.index, monthly_combined['Buy & Hold'], 
                        label='Buy & Hold', linewidth=2.5, linestyle=':', 
@@ -1275,7 +1538,6 @@ with tabs[4]:
             ax.legend(loc='best', fontsize=11, framealpha=0.9)
             ax.axhline(y=total_capital, color=COLORS['gray'], linestyle='-', linewidth=1, alpha=0.5)
             
-            # Format x-axis
             if len(monthly_combined.index) > 12:
                 x_ticks = range(0, len(monthly_combined.index), max(1, len(monthly_combined.index) // 12))
                 ax.set_xticks(x_ticks)
@@ -1284,8 +1546,8 @@ with tabs[4]:
             plt.tight_layout()
             st.pyplot(fig)
 
-# ==================== TAB 6: DRAWDOWN ====================
-with tabs[5]:
+# ==================== TAB 7: DRAWDOWN ====================
+with tabs[6]:
     st.markdown('<p class="sub-header">Drawdown Analysis</p>', unsafe_allow_html=True)
     
     selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="dd_select")
@@ -1354,8 +1616,8 @@ with tabs[5]:
                         break
                 create_metric_card("Current DD Duration", f"{current_dd_duration}", 'other')
 
-# ==================== TAB 7: PERIODS ====================
-with tabs[6]:
+# ==================== TAB 8: PERIODS ====================
+with tabs[7]:
     st.markdown('<p class="sub-header">Period-by-Period Analysis</p>', unsafe_allow_html=True)
     
     selected_strategy = st.selectbox("Select Strategy", list(dataframes.keys()), key="period_select")
@@ -1447,5 +1709,3 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
-
-
