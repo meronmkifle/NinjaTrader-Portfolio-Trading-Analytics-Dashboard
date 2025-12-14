@@ -1158,7 +1158,7 @@ with tabs[1]:
         st.markdown("---")
         available_years = sorted(monthly_df['Year'].unique(), reverse=True)
         
-        st.markdown("### 📊 MONTHLY PERFORMANCE VISUALIZATION")
+        st.markdown("### MONTHLY PERFORMANCE VISUALIZATION")
         
         # Create year selector buttons
         st.markdown('<p style="color: #A0AEC0; font-family: Rajdhani, sans-serif; margin-bottom: 0.5rem;">Select Year:</p>', unsafe_allow_html=True)
@@ -1764,4 +1764,5 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
+
 
