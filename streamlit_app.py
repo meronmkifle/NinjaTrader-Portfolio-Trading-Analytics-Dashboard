@@ -632,8 +632,11 @@ def create_monthly_performance_chart(monthly_df, selected_year=None):
             ax_bars.text(i, label_y, f'{v:.2f}%', ha='center', va='bottom' if v > 0 else 'top',
                         color=COLORS['yellow'], fontsize=9, fontweight='bold')
     
-    # Calculate YTD return (shown in top right)
-    ytd_return = year_data['Return_%'].sum()
+    # Calculate YTD return using compounding (shown in top right)
+    # Formula: (1 + r1) × (1 + r2) × ... × (1 + rn) - 1
+    # This correctly compounds monthly returns instead of simply summing them
+    monthly_returns_decimal = year_data['Return_%'] / 100
+    ytd_return = (np.prod(1 + monthly_returns_decimal) - 1) * 100
     ax_bars.text(0.98, 0.95, f'{ytd_return:.2f}%', transform=ax_bars.transAxes,
                 ha='right', va='top', fontsize=14, fontweight='bold',
                 color=COLORS['green'] if ytd_return > 0 else COLORS['red'],
@@ -724,7 +727,9 @@ def create_monthly_performance_chart(monthly_df, selected_year=None):
                  color=COLORS['gray_light'], family='Rajdhani')
     
     for i, year in enumerate(pivot_data.index):
-        annual_return = pivot_data.loc[year].sum()
+        # Calculate compounded annual return
+        monthly_returns_decimal = pivot_data.loc[year] / 100
+        annual_return = (np.prod(1 + monthly_returns_decimal.fillna(0)) - 1) * 100
         color = COLORS['green'] if annual_return > 0 else COLORS['red'] if annual_return < 0 else COLORS['gray']
         
         is_selected = (year == selected_year)
@@ -1124,7 +1129,7 @@ with tabs[1]:
     
     # Configuration
     if len(dataframes) == 1:
-        st.info("Showing monthly returns for single strategy")
+        st.info("📊 Showing monthly returns for single strategy")
         initial_capital = st.number_input("Starting Capital ($)", value=100000, step=10000, min_value=1000)
         weights = None
     else:
@@ -1743,7 +1748,7 @@ with tabs[7]:
     
     st.dataframe(df[display_cols].tail(20), use_container_width=True)
     
-    if st.button("📥 Download Full Period Data"):
+    if st.button("Download Full Period Data"):
         csv = df.to_csv(index=False)
         st.download_button(
             label="Click to Download CSV",
@@ -1764,6 +1769,3 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
-
-
-
