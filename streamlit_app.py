@@ -1163,7 +1163,7 @@ with tabs[1]:
         st.markdown("---")
         available_years = sorted(monthly_df['Year'].unique(), reverse=True)
         
-        st.markdown("### MONTHLY PERFORMANCE VISUALIZATION")
+        st.markdown("### 📊 MONTHLY PERFORMANCE VISUALIZATION")
         
         # Create year selector buttons
         st.markdown('<p style="color: #A0AEC0; font-family: Rajdhani, sans-serif; margin-bottom: 0.5rem;">Select Year:</p>', unsafe_allow_html=True)
@@ -1215,7 +1215,7 @@ with tabs[1]:
             create_metric_card("Monthly Win Rate", win_rate, 'percent')
         
         # Show raw data table
-        with st.expander("View Monthly Data Table"):
+        with st.expander("📋 View Monthly Data Table"):
             display_df = monthly_df.copy()
             display_df['Month_Name'] = pd.to_datetime(display_df['Month'].astype(str), format='%m').dt.strftime('%B')
             display_df = display_df[['Year', 'Month_Name', 'Return_%', 'Net_Return']]
