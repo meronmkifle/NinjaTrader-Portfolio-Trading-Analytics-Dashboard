@@ -1129,7 +1129,7 @@ with tabs[1]:
     
     # Configuration
     if len(dataframes) == 1:
-        st.info("Showing monthly returns for single strategy")
+        st.info("📊 Showing monthly returns for single strategy")
         initial_capital = st.number_input("Starting Capital ($)", value=100000, step=10000, min_value=1000)
         weights = None
     else:
@@ -1769,4 +1769,3 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
-
