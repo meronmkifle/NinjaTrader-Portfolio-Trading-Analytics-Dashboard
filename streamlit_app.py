@@ -1571,7 +1571,7 @@ with tabs[5]:
                 except Exception as e:
                     st.warning(f"Could not fetch benchmark data: {e}")
             
-            # Plot
+            # Plot with FIXED x-axis labels
             fig, ax = plt.subplots(figsize=(16, 8))
             setup_plot_style(fig, ax)
             
@@ -1598,10 +1598,19 @@ with tabs[5]:
             ax.legend(loc='best', fontsize=11, framealpha=0.9)
             ax.axhline(y=total_capital, color=COLORS['gray'], linestyle='-', linewidth=1, alpha=0.5)
             
+            # FIXED: Show yearly labels (every 12 months)
             if len(monthly_combined.index) > 12:
-                x_ticks = range(0, len(monthly_combined.index), max(1, len(monthly_combined.index) // 12))
-                ax.set_xticks(x_ticks)
-                ax.set_xticklabels([monthly_combined.index[i] for i in x_ticks], rotation=45, ha='right')
+                # Get indices for January of each year (or first month if January not present)
+                year_indices = []
+                seen_years = set()
+                for i, month_year in enumerate(monthly_combined.index):
+                    year = month_year.split('-')[0]
+                    if year not in seen_years:
+                        year_indices.append(i)
+                        seen_years.add(year)
+                
+                ax.set_xticks(year_indices)
+                ax.set_xticklabels([monthly_combined.index[i] for i in year_indices], rotation=45, ha='right')
             
             plt.tight_layout()
             st.pyplot(fig)
@@ -1769,4 +1778,3 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
-
