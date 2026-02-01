@@ -39,7 +39,7 @@ COLORS = {
     'blue_glow': '#2563EB'
 }
 
-# Custom CSS with modern styling
+# Custom CSS with modern style
 st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
@@ -1778,3 +1778,4 @@ st.markdown("""
         </p>
     </div>
 """, unsafe_allow_html=True)
+
